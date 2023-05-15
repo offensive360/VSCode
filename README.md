@@ -19,7 +19,7 @@ This section explains how to install and configure the Offensive 360 Visual Stud
 ![image](https://user-images.githubusercontent.com/13881466/179177844-bb73f6fe-6115-4840-a46c-9493f6bbb49f.png)
 
 2. Then expend `Extensions` node and click on `Offensive 360 Settings`
-![image](https://user-images.githubusercontent.com/13881466/179180063-ac05e749-ec93-4150-8ce9-c7093a30ccc8.png)
+![image](https://github.com/offensive360/VSCode/assets/13881466/c7a3c6cc-67ab-406a-94db-ca21ce33222f)
 
 3. Enter Offensive 360 scan endpoint and access token information and close the Settins window
 
