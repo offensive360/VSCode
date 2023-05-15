@@ -1,0 +1,115 @@
+{
+  "name": "offensive360",
+  "displayName": "Offensive 360",
+  "description": "Secure code analysis that understands the code",
+  "version": "0.1.6",
+  "publisher": "Offensive360",
+  "license": "SEE LICENSE IN offensive-license-terms.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/offensive360/VSCode.git"
+  },
+  "icon" : "src/images/logo.png",
+  "galleryBanner": {
+    "color": "#C80000",
+    "theme": "dark"
+  },
+  "author": {
+    "name": "Offensive 360"
+  },
+  "keywords": [
+    "offensive",
+    "offensive 360",
+    "static analysis",
+    "sast",
+    "security",
+    "scan"
+  ],
+  "engines": {
+    "vscode": "^1.68.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:Explorer.scanFolder",
+    "onCommand:Explorer.scanWorkspace"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "type": "object",
+      "title": "Offensive 360 Settings",
+      "properties": {
+        "offensive.endpoint": {
+          "type": "string",
+          "description": "Sast endpoint to scan workspace, folder and file",
+          "default": "<Replace with SAST API base url>"
+        },
+        "offensive.accessToken": {
+          "type": "string",
+          "description": "Access token to access Sast endpoint",
+          "default": "<Replace with SAST API access token starting with ey..>"
+        }
+      }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "offensive360scan",
+          "name": "Offensive 360 Scan"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "Explorer.scanFolder",
+        "title": "Offensive 360 : Scan Folder"
+      },
+      {
+				"command": "Explorer.scanWorkspace",
+				"title": "Offensive 360 : Scan Workspace"
+			}
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "Explorer.scanFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "Offensive360"
+        },
+        {
+					"command": "Explorer.scanWorkspace",
+					"when": "workspaceFolderCount != 0",
+					"group": "Offensive360"
+				}
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/glob": "^7.2.0",
+    "@types/mocha": "^9.1.1",
+    "@types/node": "14.x",
+    "@types/vscode": "^1.68.0",
+    "@typescript-eslint/eslint-plugin": "^5.21.0",
+    "@typescript-eslint/parser": "^5.21.0",
+    "@vscode/test-electron": "^2.1.3",
+    "eslint": "^8.14.0",
+    "glob": "^8.0.1",
+    "mocha": "^9.2.2",
+    "typescript": "^4.6.4"
+  },
+  "dependencies": {
+    "axios": "^0.27.2",
+    "form-data": "^4.0.0",
+    "zip-dir": "^2.0.0"
+  }
+}
