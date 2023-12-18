@@ -2,7 +2,7 @@
   "name": "offensive360",
   "displayName": "Offensive 360",
   "description": "Secure code analysis that understands the code",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "publisher": "Offensive360",
   "license": "SEE LICENSE IN offensive-license-terms.md",
   "repository": {
