@@ -198,20 +198,9 @@ export class SastClient {
          if(ignoreSettings !== undefined && ignoreSettings?.length > 0)
          {
             let sastIgnores = ignoreSettings?.split('\n');
-
-            if(element.lineNo === null || element.lineNo === undefined)
-            {
-               element.lineNo = 0;
-            }
-            element.lineNo = element.lineNo - 1;
-
-            if(element.columnNo === null || element.columnNo === undefined)
-            {
-               element.columnNo = 0;
-            }
-            element.columnNo = element.columnNo - 1 + indexOf;
-
-            let sastIgnore = sastIgnores?.filter(x => x === `${this.getFileRelativePath(this.removeTrailingSlash(filePath))}__${element.lineNo}:${element.columnNo}__${element.title}`);
+            let lineNo = parseInt(element.lineNumber.split(',')[0]) - 1;
+            let columnNo = parseInt(element.lineNumber.split(',')[1]) - 1 + indexOf;
+            let sastIgnore = sastIgnores?.filter(x => x === `${this.getFileRelativePath(this.removeTrailingSlash(filePath))}__${lineNo}:${columnNo}__${element.title}`);
             if(sastIgnore === undefined || sastIgnore?.length <= 0)
             {
                diagnostics.push(this.populateDiagnostic(element, indexOf));
@@ -248,19 +237,9 @@ export class SastClient {
    }
 
    private populateDiagnostic(vulnerability: any, indexOf: number): any {
-      if(vulnerability.lineNo === null || vulnerability.lineNo === undefined)
-      {
-         vulnerability.lineNo = 0;
-      }
-      vulnerability.lineNo = vulnerability.lineNo - 1;
-
-      if(vulnerability.columnNo === null || vulnerability.columnNo === undefined)
-      {
-         vulnerability.columnNo = 0;
-      }
-      vulnerability.columnNo = vulnerability.columnNo - 1 + indexOf;
-     
-      const range = new vscode.Range(vulnerability.lineNo, vulnerability.columnNo, vulnerability.lineNo, vulnerability.columnNo);
+      let line = parseInt(vulnerability.lineNumber.split(',')[0]) - 1;
+      let column = parseInt(vulnerability.lineNumber.split(',')[1]) - 1 + indexOf;
+      const range = new vscode.Range(line, column, line, column);
       let diag = new vscode.Diagnostic(range, (`[${vulnerability.title}] ${vulnerability.vulnerability}`), this.getDiagnosticSeverity(vulnerability.riskLevel));
       diag.code = "";
       diag.source = vulnerability.references?.split('|')[0]?.trim();
@@ -284,8 +263,7 @@ export class SastClient {
 
    private getDuplicateIndex(warnings: any, element: any): number {
       var duplicateData = warnings.filter(x =>
-         x.lineNo === element.lineNo &&
-         x.lineNo === element.lineNo &&
+         x.lineNumber === element.lineNumber &&
          x.filePath === element.filePath);
 
       if (duplicateData.length > 1) {
