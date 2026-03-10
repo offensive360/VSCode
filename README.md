@@ -1,59 +1,86 @@
-# Offensive 360 for Visual Studio Code
+# O360 SAST for Visual Studio Code
 
-Offensive 360 does deep source code analysis with one click. (We spent years building virtual compilers that understand the code, not only catching low hanging fruits vulnerabilities. We also claim that O360 can find security flaws that are even difficult for skilled application security testing consultants to find)
+Enterprise static application security testing (SAST) — find and fix vulnerabilities directly in your editor. O360 SAST uses deep source code analysis with proprietary virtual compilers that understand code semantics, catching security flaws that go beyond surface-level pattern matching.
 
-This section explains how to install and configure the Offensive 360 Visual Studio Code Extension Plugin and how to scan files, folder and workspace.
+## Features
 
-## Installing the Plugin
+### Scan from Anywhere
+- **Scan File** — Right-click any file in the explorer or editor
+- **Scan Folder** — Right-click any folder in the explorer
+- **Scan Workspace** — Scan your entire project with one click
+- **Auto-scan on Save** — Optionally scan files automatically when saved
 
-1. Open the Microsoft Visual Studio Code application, navigate to the Extensions. 
-![image](https://user-images.githubusercontent.com/13881466/179171511-3a12fea4-910c-431e-b929-88b44252d18e.png)
+### Rich Vulnerability Display
+- **Inline Diagnostics** — Vulnerabilities appear as squiggly underlines directly in your code
+- **Severity Mapping** — Critical/High → Error (red), Medium → Warning (yellow), Low → Info (blue)
+- **Hover Details** — Hover over any finding to see severity, description, impact, and recommendation
+- **Status Bar** — Always see the total count of findings at a glance
 
+### Dedicated Sidebar Panel
+- **Security Findings Tree** — Browse findings organized by severity and file
+- **Click to Navigate** — Click any finding to jump to the exact line in your code
+- **Scan & Refresh** — Quick scan and refresh buttons in the panel header
 
-2. Search for **Offensive 360** and click on install
-![image](https://user-images.githubusercontent.com/13881466/179386453-26f108b4-7869-4dac-9766-69cb8f27207f.png)
+### Code Actions (Quick Fix Menu)
+Right-click any highlighted vulnerability to access:
+- **Fix Recommendation** — View the recommended fix with full details in a side panel
+- **Explain Vulnerability** — Understand the vulnerability's impact and description
+- **View References** — Open OWASP, CWE, and other reference links
+- **Suppress Finding** — Add to `.SASTO360/sastIgnore` to hide from future scans
+- **Mark as False Positive** — Suppress with a reason tag for audit tracking
+- **Clear All Findings** — Remove all diagnostics from the editor
 
+### Vulnerability Detail Panel
+A rich side panel with tabbed navigation:
+- **Vulnerability Details** — Full description, impact analysis, and affected code snippet
+- **How to Fix** — Specific fix recommendations from the O360 knowledge base
+- **References** — Clickable links to security references (OWASP, CWE, etc.)
 
-## Configuring Offensive 360 Settings
-1. Click on `File menu => Preferences => Settings` to configure Offensive 360 settings if you are installing for first time or if you want to make any change to existing Offensive 360 settings.
-![image](https://user-images.githubusercontent.com/13881466/179177844-bb73f6fe-6115-4840-a46c-9493f6bbb49f.png)
+### Multiple Scan Types
+- **Code Vulnerabilities** — 20+ language engines (C#, Java, JavaScript, Python, PHP, Go, Ruby, and more)
+- **Dependency Scanning (SCA)** — Known CVEs in third-party libraries
+- **License Compliance** — Open source license risk detection
+- **Malware Detection** — YARA-based malware scanning
 
-2. Then expend `Extensions` node and click on `Offensive 360 Settings`
-![image](https://github.com/offensive360/VSCode/assets/13881466/c7a3c6cc-67ab-406a-94db-ca21ce33222f)
+## Getting Started
 
-3. Enter Offensive 360 scan endpoint and access token information and close the Settins window
+### Prerequisites
+- An O360 SAST server instance (on-premises or cloud)
+- An API access token (generated from the O360 dashboard)
 
+### Configuration
 
-## How it works
-1. Simply open any source file or project and right click on file or folder you will see respective context menu
-![image](https://user-images.githubusercontent.com/13881466/179181906-37b252bf-2b5f-4ac1-863c-b814be0b8774.png)
-![image](https://user-images.githubusercontent.com/13881466/179182052-4b8011f3-60d7-4515-9ebb-6a3643a08d9d.png)
+1. Open **Settings** (`Cmd+,` / `Ctrl+,`)
+2. Search for `O360`
+3. Set your **Endpoint** (e.g., `https://your-server.com:1800`)
+4. Set your **Access Token** (generated from O360 dashboard → Settings → Tokens)
 
-> **Note** 
-> When scanning the entire project, please select the "Scan Workspace" option for the best results instead of selecting "Scan Folder" on the root folder.
+### First Scan
 
-2. Click on respective context menu to scan a file or folder. You will see queued status on status bar that indicates your scan request got queued.
-![image](https://user-images.githubusercontent.com/13881466/179186988-f968c6dc-c0f5-40b7-b04e-3de3f5ab7db3.png)
+1. Open a project in VS Code
+2. Right-click in the explorer → **O360 SAST: Scan Workspace**
+3. Wait for the scan to complete (progress shown in notification)
+4. Review findings in the **Security Findings** sidebar panel
+5. Click any finding to navigate to the vulnerable code
+6. Use the Quick Fix menu (lightbulb) for fix recommendations
 
- 3. After some time message on status bar will be updated to let you know whether your scan request is still in queued state or it turned into in-progress state. if it is still in queued, you will see queue position.
- ![image](https://user-images.githubusercontent.com/13881466/179187742-0e9b008c-2d8d-4c96-98b0-c5cbef2f7e8e.png)
- ![image](https://user-images.githubusercontent.com/13881466/183276079-823d9824-804f-453c-88b3-fa1ec7757921.png)
+## Settings
 
-4. As soon as scanning is done, you will see vulnerabilities in IDE
-![image](https://user-images.githubusercontent.com/13881466/179190467-f683aefa-0bbc-4939-a654-5f3ecd975d26.png)
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `o360.endpoint` | — | O360 SAST server URL |
+| `o360.accessToken` | — | API access token |
+| `o360.autoScanOnSave` | `false` | Auto-scan files on save |
+| `o360.scanDependencies` | `true` | Include SCA scanning |
+| `o360.scanLicenses` | `false` | Include license scanning |
+| `o360.scanMalware` | `false` | Include malware scanning |
+| `o360.showInlineDetails` | `true` | Show hover details |
 
-5. By clicking on a vulnerability, you will be redirected to respective code file, line and column.
-![image](https://user-images.githubusercontent.com/13881466/179195045-62fadc58-7bcb-44c3-a6ff-4f881185921f.png)
+## Suppression
 
-6. Mouse over on a vulnerability can help you in providing tooltip view to read the message easily.     
-![image](https://user-images.githubusercontent.com/13881466/179195366-5ef41a06-8b06-4857-8e43-743659c842ac.png)
- 
-7. `Clear all Errors` on right click on a vulnerability will be appeared and help you in clearing all the errors from IDE
-![image](https://user-images.githubusercontent.com/13881466/179200514-6947b5b6-cf94-417a-a52a-e2e60e532efd.png)
-![image](https://user-images.githubusercontent.com/13881466/179200874-1d5106bb-290b-4b67-a1db-b06757308708.png)
+Findings can be suppressed per-line using the Quick Fix menu. Suppressed entries are stored in `.SASTO360/sastIgnore` in your workspace root. You can commit this file to share suppressions across your team.
 
+## Support
 
-8. `Get Help` on right click on a vulnerability will be appeared and help you in getting more details about a vulnerability
-![image](https://user-images.githubusercontent.com/13881466/179200708-c796e7e8-db5d-4e64-b6b4-f6bab9747881.png)
-
-**Enjoy!!**
+- Issues: [GitHub Issues](https://github.com/offensive360/VSCode/issues)
+- Documentation: [O360 SAST Docs](https://www.offensive360.com)
