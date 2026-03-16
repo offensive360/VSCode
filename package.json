@@ -1,7 +1,7 @@
 {
   "name": "offensive360",
   "displayName": "O360 SAST",
-  "description": "Enterprise static application security testing — find and fix vulnerabilities directly in your editor",
+  "description": "Enterprise static application security testing \u2014 find and fix vulnerabilities directly in your editor",
   "version": "1.0.0",
   "publisher": "Offensive360",
   "license": "SEE LICENSE IN offensive-license-terms.md",
@@ -53,7 +53,7 @@
         },
         "o360.accessToken": {
           "type": "string",
-          "description": "API access token (generated from O360 SAST dashboard under Settings → Tokens)",
+          "description": "API access token (generated from O360 SAST dashboard under Settings \u2192 Tokens)",
           "default": "",
           "order": 2
         },
@@ -192,7 +192,7 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npx esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
@@ -207,6 +207,7 @@
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.3.0",
     "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.27.4",
     "eslint": "^8.50.0",
     "typescript": "^5.2.0"
   },
