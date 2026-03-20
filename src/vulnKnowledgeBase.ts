@@ -4,7 +4,7 @@
  * Provides offline fix guidance, descriptions, and remediation hints
  * for common vulnerability types detected by O360 SAST scanner.
  *
- * No external dependencies and no network calls required.
+ * No external dependencies, no network calls, no AI.
  * Works with on-premises and air-gapped deployments.
  */
 
@@ -210,12 +210,8 @@ const KB_DATA: Record<string, VulnKBEntry> = {
   }
 };
 
-// Competitor domains to filter from references
-const COMPETITOR_DOMAINS = [
-  'snyk.io', 'checkmarx.com', 'sonarqube.org', 'sonarcloud.io',
-  'veracode.com', 'fortify.com', 'coverity.com', 'synopsys.com',
-  'whitesource.io', 'mend.io', 'semgrep.dev'
-];
+// Domains to filter from references
+const COMPETITOR_DOMAINS: string[] = [];
 
 /**
  * Look up a vulnerability type in the knowledge base.
