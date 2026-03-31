@@ -202,8 +202,10 @@ export class Scanner {
 
         if (status === 2 || status === 4) { // Succeeded or Partial Failed
           progress.report({ message: 'Retrieving scan results...' });
-          // Fetch results IMMEDIATELY before server deletes the ephemeral project
           const results = await this.api.getAllResults(projectId);
+
+          // Clean up: delete project from server dashboard
+          await this.api.deleteProject(projectId);
 
           if (status === 2) {
             vscode.window.showInformationMessage(`Offensive360: Scan completed successfully!`);
