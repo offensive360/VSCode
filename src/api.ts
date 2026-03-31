@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
+import * as https from 'https';
 import * as vscode from 'vscode';
 import FormData from 'form-data';
 import * as fs from 'fs';
@@ -106,6 +107,34 @@ export interface LicenseScanResult {
   riskLevel: string;
 }
 
+/**
+ * Response from /app/api/ExternalScan — returns all results immediately.
+ * The project is ephemeral (auto-deleted), so no polling is needed.
+ */
+export interface ExternalScanResponse {
+  projectId: string;
+  status: number;
+  vulnerabilities: ExternalScanVuln[] | null;
+  malwares: any[] | null;
+  licenses: any[] | null;
+  dependencyVulnerabilities: any[] | null;
+}
+
+export interface ExternalScanVuln {
+  id: string;
+  fileName: string;
+  filePath: string;
+  lineNumber: string;   // "line,column" format e.g. "2,1"
+  codeSnippet: string;  // base64-encoded
+  type: string;
+  riskLevel: number;
+  vulnerability: string;
+  title: string;
+  effect: string;
+  references: string;
+  recommendation: string;
+}
+
 export const SCAN_STATUS: Record<number, string> = {
   0: 'Queued',
   1: 'Running',
@@ -135,6 +164,7 @@ export class SastApi {
   private client: AxiosInstance;
   private token: string = '';
   private baseUrl: string = '';
+  private httpsAgent: https.Agent | undefined;
 
   constructor() {
     this.client = axios.create({ timeout: 600000 });
@@ -145,10 +175,22 @@ export class SastApi {
     const config = vscode.workspace.getConfiguration('o360');
     this.baseUrl = (config.get<string>('endpoint') || 'https://sast.offensive360.com').replace(/\/+$/, '');
     this.token = config.get<string>('accessToken') || '';
-    this.client.defaults.baseURL = this.baseUrl;
-    if (this.token) {
-      this.client.defaults.headers.common['Authorization'] = `Bearer ${this.token}`;
+    const allowSelfSigned = config.get<boolean>('allowSelfSignedCerts') || false;
+
+    if (allowSelfSigned) {
+      this.httpsAgent = new https.Agent({ rejectUnauthorized: false });
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    } else {
+      this.httpsAgent = undefined;
+      delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
     }
+
+    this.client = axios.create({
+      baseURL: this.baseUrl,
+      timeout: 600000,
+      httpsAgent: this.httpsAgent,
+      headers: this.token ? { 'Authorization': `Bearer ${this.token}` } : {}
+    });
   }
 
   isAuthenticated(): boolean {
@@ -236,12 +278,21 @@ export class SastApi {
     return response.data;
   }
 
+  /**
+   * Deletes a project from the server to avoid leaving scan artifacts in the dashboard.
+   */
+  async deleteProject(projectId: string): Promise<void> {
+    try {
+      await this.client.delete(`/app/api/Project/${projectId}`);
+    } catch {
+      // best-effort cleanup
+    }
+  }
+
   async scanFileUpload(zipPath: string, projectName: string): Promise<any> {
     const form = new FormData();
     form.append('FileSource', fs.createReadStream(zipPath));
     form.append('Name', projectName);
-    // KeepInvisibleAndDeletePostScan disabled until server-side delayed deletion is fixed
-    // form.append('KeepInvisibleAndDeletePostScan', 'True');
     form.append('ExternalScanSourceType', 'VsCodeExtension');
 
     const response = await this.client.post('/app/api/Project/scanProjectFile', form, {
@@ -251,9 +302,69 @@ export class SastApi {
       },
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
-      timeout: 600000
+      timeout: 600000,
+      httpsAgent: this.httpsAgent
     });
     return response.data;
+  }
+
+  /**
+   * Upload files to /app/api/ExternalScan.
+   * Returns all results immediately — no polling needed.
+   * The project is ephemeral and auto-deleted by the server.
+   */
+  async externalScan(zipPath: string, projectName: string, sourceType: string = 'VsCodeExtension'): Promise<ExternalScanResponse> {
+    const form = new FormData();
+    form.append('fileSource', fs.createReadStream(zipPath));
+    form.append('Name', projectName);
+    form.append('KeepInvisibleAndDeletePostScan', 'True');
+    form.append('ExternalScanSourceType', sourceType);
+
+    const response = await this.client.post('/app/api/ExternalScan', form, {
+      headers: {
+        ...form.getHeaders(),
+        'Authorization': `Bearer ${this.token}`
+      },
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+      timeout: 600000,
+      httpsAgent: this.httpsAgent
+    });
+    return response.data;
+  }
+
+  /**
+   * Convert ExternalScan vulnerabilities to LangScanResult format
+   * for compatibility with diagnostics and tree views.
+   */
+  static convertExternalVulns(vulns: ExternalScanVuln[]): LangScanResult[] {
+    return vulns.map(v => {
+      const parts = (v.lineNumber || '0,0').split(',');
+      const lineNo = parseInt(parts[0]) || 0;
+      const columnNo = parseInt(parts[1]) || 0;
+
+      let snippet = '';
+      if (v.codeSnippet) {
+        try { snippet = Buffer.from(v.codeSnippet, 'base64').toString('utf8'); } catch { snippet = v.codeSnippet; }
+      }
+
+      return {
+        id: v.id,
+        fileName: v.fileName,
+        filePath: v.filePath,
+        lineNo,
+        columnNo,
+        codeSnippet: snippet,
+        type: v.type,
+        riskLevel: v.riskLevel,
+        vulnerability: v.vulnerability || v.title,
+        references: v.references || '',
+        isTagged: false,
+        // Preserve extra fields for richer display
+        effect: (v as any).effect,
+        recommendation: (v as any).recommendation
+      } as LangScanResult & { effect?: string; recommendation?: string };
+    });
   }
 
   async scanGitRepo(repoUrl: string, projectName: string, branch?: string): Promise<any> {
@@ -340,6 +451,23 @@ export class SastApi {
     malware: MalwareScanResult[];
     license: LicenseScanResult[];
   }> {
+    // Retry up to 3 times with 5s delay — some servers need time to populate results after scan completes
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const [lang, dep, malware, license] = await Promise.all([
+        this.getLanguageResults(projectId),
+        this.getDependencyResults(projectId),
+        this.getMalwareResults(projectId),
+        this.getLicenseResults(projectId),
+      ]);
+      const total = lang.length + dep.length + malware.length + license.length;
+      if (total > 0) {
+        return { lang, dep, malware, license };
+      }
+      if (attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+    }
+    // Final attempt
     const [lang, dep, malware, license] = await Promise.all([
       this.getLanguageResults(projectId),
       this.getDependencyResults(projectId),

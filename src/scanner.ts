@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as archiver from 'archiver';
-import { SastApi, SCAN_STATUS, LangScanResult, DepScanResult, MalwareScanResult, LicenseScanResult } from './api';
+import { SastApi, SCAN_STATUS, LangScanResult, DepScanResult, MalwareScanResult, LicenseScanResult, ExternalScanResponse, ExternalScanVuln } from './api';
 
 export interface ScanOutput {
   projectId: string;
@@ -45,17 +45,8 @@ export class Scanner {
       await this.zipFolder(folderPath, zipPath);
       progress.report({ message: 'Uploading to SAST server...', increment: 30 });
 
-      const result = await this.api.scanFileUpload(zipPath, projectName);
-      const projectId = result?.id || result?.projectId || result;
-
-      progress.report({ message: 'Scan queued, waiting for results...', increment: 20 });
-
-      if (projectId) {
-        // Poll until complete, then fetch results immediately (before server deletes ephemeral project)
-        return await this.pollScanAndFetchResults(projectId, progress);
-      }
-
-      return null;
+      // Try ExternalScan first (immediate results, no project saved)
+      return await this.tryExternalScanWithFallback(zipPath, projectName, progress);
     } catch (error: any) {
       const statusCode = error?.response?.status;
       const responseBody = error?.response?.data;
@@ -94,16 +85,8 @@ export class Scanner {
       await this.zipFolder(workspacePath, zipPath);
       progress.report({ message: 'Uploading to SAST server...', increment: 30 });
 
-      const result = await this.api.scanFileUpload(zipPath, projectName);
-      const projectId = result?.id || result?.projectId || result;
-
-      progress.report({ message: 'Scan queued, waiting for results...', increment: 20 });
-
-      if (projectId) {
-        return await this.pollScanAndFetchResults(projectId, progress);
-      }
-
-      return null;
+      // Try ExternalScan first (immediate results, no project saved)
+      return await this.tryExternalScanWithFallback(zipPath, projectName, progress);
     } catch (error: any) {
       const statusCode = error?.response?.status;
       const responseBody = error?.response?.data;
@@ -142,6 +125,60 @@ export class Scanner {
     } catch (error: any) {
       vscode.window.showErrorMessage(`Git scan failed: ${error.message}`);
       return null;
+    }
+  }
+
+  /**
+   * Try ExternalScan (immediate results). If it fails (403/404), fall back to
+   * scanProjectFile + polling. ExternalScan is the preferred path for External tokens.
+   */
+  private async tryExternalScanWithFallback(zipPath: string, projectName: string, progress: vscode.Progress<{ message?: string; increment?: number }>): Promise<ScanOutput | null> {
+    try {
+      progress.report({ message: 'Scanning (ExternalScan)...' });
+      const resp = await this.api.externalScan(zipPath, projectName);
+
+      // ExternalScan returns all results immediately
+      const langResults = resp.vulnerabilities
+        ? SastApi.convertExternalVulns(resp.vulnerabilities)
+        : [];
+
+      const totalVulns = langResults.length
+        + (resp.dependencyVulnerabilities?.length || 0)
+        + (resp.malwares?.length || 0)
+        + (resp.licenses?.length || 0);
+
+      progress.report({ message: `Scan complete! Found ${totalVulns} issue(s).`, increment: 40 });
+
+      vscode.window.showInformationMessage(
+        `Offensive360: Scan complete — ${langResults.length} vulnerability(ies) found.`
+      );
+
+      return {
+        projectId: resp.projectId || '',
+        results: {
+          lang: langResults,
+          dep: (resp.dependencyVulnerabilities as any[]) || [],
+          malware: (resp.malwares as any[]) || [],
+          license: (resp.licenses as any[]) || []
+        }
+      };
+    } catch (extErr: any) {
+      const status = extErr?.response?.status;
+      // 403 = no permission, 404 = endpoint missing, 500 = server error — fall back to scanProjectFile
+      if (status === 403 || status === 404 || status === 500) {
+        progress.report({ message: 'Uploading for scan...' });
+        const result = await this.api.scanFileUpload(zipPath, projectName);
+        const projectId = result?.id || result?.projectId || result;
+        if (projectId) {
+          progress.report({ message: 'Scan queued, waiting for results...', increment: 20 });
+          const scanOutput = await this.pollScanAndFetchResults(projectId, progress);
+          // Clean up: delete the project from the server after fetching results
+          await this.api.deleteProject(projectId);
+          return scanOutput;
+        }
+        return null;
+      }
+      throw extErr; // Re-throw other errors
     }
   }
 
