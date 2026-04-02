@@ -5,6 +5,12 @@ import { Scanner } from './scanner';
 import { DiagnosticsManager } from './diagnostics';
 import { O360CodeActionProvider, showFixGuidancePanel } from './codeActionProvider';
 
+// Apply SSL override early if configured
+const earlyConfig = vscode.workspace.getConfiguration('o360');
+if (earlyConfig.get<boolean>('allowSelfSignedCerts')) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
+
 let api: SastApi;
 let projectTree: ProjectTreeProvider;
 let scanner: Scanner;
@@ -65,11 +71,53 @@ function updateStatusBar(): void {
   statusBarItem.show();
 }
 
+const CURRENT_VERSION = '1.1.0';
+const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/offensive360/intellij/main/update-manifest.json';
+
+function checkForUpdate() {
+  const https = require('https');
+  const http = require('http');
+  const get = UPDATE_MANIFEST_URL.startsWith('https') ? https.get : http.get;
+
+  get(UPDATE_MANIFEST_URL, { timeout: 10000 }, (res: any) => {
+    let data = '';
+    res.on('data', (chunk: string) => data += chunk);
+    res.on('end', () => {
+      try {
+        const manifest = JSON.parse(data);
+        const latest = manifest?.vscode?.version;
+        const downloadUrl = manifest?.vscode?.downloadUrl;
+        const notes = manifest?.vscode?.releaseNotes;
+
+        if (latest && latest !== CURRENT_VERSION) {
+          const parts = (v: string) => v.split('.').map(Number);
+          const l = parts(latest), c = parts(CURRENT_VERSION);
+          const isNewer = l[0] > c[0] || (l[0] === c[0] && l[1] > c[1]) || (l[0] === c[0] && l[1] === c[1] && l[2] > c[2]);
+
+          if (isNewer) {
+            vscode.window.showInformationMessage(
+              `O360 SAST: Version ${latest} is available. ${notes || ''}`,
+              'Download Update'
+            ).then(choice => {
+              if (choice === 'Download Update' && downloadUrl) {
+                vscode.env.openExternal(vscode.Uri.parse(downloadUrl));
+              }
+            });
+          }
+        }
+      } catch {}
+    });
+  }).on('error', () => {});
+}
+
 export function activate(context: vscode.ExtensionContext) {
   api = new SastApi();
   projectTree = new ProjectTreeProvider(api);
   scanner = new Scanner(api);
   diagnostics = new DiagnosticsManager();
+
+  // Check for updates in background
+  checkForUpdate();
 
   // Status bar item
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);

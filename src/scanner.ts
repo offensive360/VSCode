@@ -133,53 +133,53 @@ export class Scanner {
    * scanProjectFile + polling. ExternalScan is the preferred path for External tokens.
    */
   private async tryExternalScanWithFallback(zipPath: string, projectName: string, progress: vscode.Progress<{ message?: string; increment?: number }>): Promise<ScanOutput | null> {
+    // Always use upload + poll pattern — avoids timeout issues with large projects
+    // ExternalScan is a single long request that times out; upload+poll is more reliable
+    progress.report({ message: 'Uploading to server...' });
+
+    let projectId: string | null = null;
+
     try {
-      progress.report({ message: 'Scanning (ExternalScan)...' });
-      const resp = await this.api.externalScan(zipPath, projectName);
-
-      // ExternalScan returns all results immediately
-      const langResults = resp.vulnerabilities
-        ? SastApi.convertExternalVulns(resp.vulnerabilities)
-        : [];
-
-      const totalVulns = langResults.length
-        + (resp.dependencyVulnerabilities?.length || 0)
-        + (resp.malwares?.length || 0)
-        + (resp.licenses?.length || 0);
-
-      progress.report({ message: `Scan complete! Found ${totalVulns} issue(s).`, increment: 40 });
-
-      vscode.window.showInformationMessage(
-        `Offensive360: Scan complete — ${langResults.length} vulnerability(ies) found.`
-      );
-
-      return {
-        projectId: resp.projectId || '',
-        results: {
-          lang: langResults,
-          dep: (resp.dependencyVulnerabilities as any[]) || [],
-          malware: (resp.malwares as any[]) || [],
-          license: (resp.licenses as any[]) || []
+      const result = await this.api.scanFileUpload(zipPath, projectName);
+      projectId = result?.id || result?.projectId || (typeof result === 'string' ? result : null);
+    } catch (uploadErr: any) {
+      // If scanProjectFile fails (403), try ExternalScan as fallback for External tokens
+      const status = uploadErr?.response?.status;
+      if (status === 403) {
+        try {
+          progress.report({ message: 'Scanning (ExternalScan)...' });
+          const resp = await this.api.externalScan(zipPath, projectName);
+          const langResults = resp.vulnerabilities
+            ? SastApi.convertExternalVulns(resp.vulnerabilities)
+            : [];
+          vscode.window.showInformationMessage(
+            `Offensive360: Scan complete — ${langResults.length} vulnerability(ies) found.`
+          );
+          return {
+            projectId: resp.projectId || '',
+            results: {
+              lang: langResults,
+              dep: (resp.dependencyVulnerabilities as any[]) || [],
+              malware: (resp.malwares as any[]) || [],
+              license: (resp.licenses as any[]) || []
+            }
+          };
+        } catch (extErr: any) {
+          throw new Error(`Scan failed: ${extErr.message || 'Server error'}`);
         }
-      };
-    } catch (extErr: any) {
-      const status = extErr?.response?.status;
-      // 403 = no permission, 404 = endpoint missing, 500 = server error — fall back to scanProjectFile
-      if (status === 403 || status === 404 || status === 500) {
-        progress.report({ message: 'Uploading for scan...' });
-        const result = await this.api.scanFileUpload(zipPath, projectName);
-        const projectId = result?.id || result?.projectId || result;
-        if (projectId) {
-          progress.report({ message: 'Scan queued, waiting for results...', increment: 20 });
-          const scanOutput = await this.pollScanAndFetchResults(projectId, progress);
-          // Clean up: delete the project from the server after fetching results
-          await this.api.deleteProject(projectId);
-          return scanOutput;
-        }
-        return null;
       }
-      throw extErr; // Re-throw other errors
+      throw uploadErr;
     }
+
+    if (!projectId) {
+      throw new Error('No project ID returned from server');
+    }
+
+    progress.report({ message: 'Scan queued, waiting for results...', increment: 20 });
+    const scanOutput = await this.pollScanAndFetchResults(projectId, progress);
+    // Clean up: delete the project from server dashboard
+    await this.api.deleteProject(projectId);
+    return scanOutput;
   }
 
   /**
@@ -202,10 +202,17 @@ export class Scanner {
 
         if (status === 2 || status === 4) { // Succeeded or Partial Failed
           progress.report({ message: 'Retrieving scan results...' });
-          const results = await this.api.getAllResults(projectId);
 
-          // Clean up: delete project from server dashboard
-          await this.api.deleteProject(projectId);
+          // Wait for server to populate vulnerability results
+          let waitAttempts = 0;
+          while (waitAttempts < 12) {
+            const proj = await this.api.getProject(projectId);
+            if ((proj as any).vulnerabilitiesCount > 0) break;
+            await new Promise(r => setTimeout(r, 5000));
+            waitAttempts++;
+          }
+
+          const results = await this.api.getAllResults(projectId);
 
           if (status === 2) {
             vscode.window.showInformationMessage(`Offensive360: Scan completed successfully!`);

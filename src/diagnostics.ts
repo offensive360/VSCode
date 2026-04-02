@@ -68,11 +68,18 @@ export class DiagnosticsManager {
         severity = vscode.DiagnosticSeverity.Information;  // Low & Safe → blue
       }
 
-      // Enhanced message with fix hint from knowledge base
-      const fixHint = getFixHint(vuln.type);
-      const message = fixHint
-        ? `[${vuln.type}] ${vuln.vulnerability}\n\u{1F6E1} Fix: ${fixHint}`
-        : `[${vuln.type}] ${vuln.vulnerability}`;
+      // Use server-provided recommendation if available, otherwise KB hint
+      const recommendation = (vuln as any).recommendation;
+      const fixHint = recommendation || getFixHint(vuln.type);
+      const effect = (vuln as any).effect;
+
+      let message = `[${vuln.type}] ${vuln.vulnerability}`;
+      if (effect) {
+        message += `\nImpact: ${effect}`;
+      }
+      if (fixHint) {
+        message += `\nFix: ${fixHint}`;
+      }
 
       const diagnostic = new vscode.Diagnostic(range, message, severity);
       diagnostic.source = 'Offensive360 SAST';
