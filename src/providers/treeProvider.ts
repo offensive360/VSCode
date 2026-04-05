@@ -82,6 +82,7 @@ export class VulnerabilityTreeProvider implements vscode.TreeDataProvider<TreeEl
                 item.vulnerability.riskLevel === severity &&
                 item.absolutePath === filePath
             )
+            .sort((a, b) => a.diagnostic.range.start.line - b.diagnostic.range.start.line)
             .map(item => new VulnTreeItem(item));
     }
 

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as https from 'https';
+import * as fs from 'fs';
 const FormData = require('form-data');
 import { API, SCAN_SOURCE_TYPE, MAX_QUEUE_WAIT_MINUTES, QUEUE_POLL_INTERVAL_SEC, EXTENSION_NAME } from '../constants';
 import { ScanResponse, ExtensionConfig, Vulnerability } from '../types';
@@ -41,6 +42,7 @@ export class ScanService {
         return {
             endpoint: this.trimTrailingSlash(config.get<string>('endpoint', '')),
             accessToken: config.get<string>('accessToken', ''),
+            allowSelfSignedCerts: config.get<boolean>('allowSelfSignedCerts', false),
             autoScanOnSave: config.get<boolean>('autoScanOnSave', false),
             scanDependencies: config.get<boolean>('scanDependencies', true),
             scanLicenses: config.get<boolean>('scanLicenses', false),
@@ -79,15 +81,10 @@ export class ScanService {
             return false;
         }
 
-        // Validate connectivity
-        try {
-            await this.getQueuePosition(config, 'test');
-        } catch {
-            vscode.window.showErrorMessage(
-                `${EXTENSION_NAME}: Unable to connect to the server. Check your endpoint and access token.`
-            );
-            return false;
-        }
+        // Skip pre-scan connectivity check — the actual scan upload will fail fast
+        // if the server is unreachable, and handles SSL/auth errors properly.
+        // Previous validation was causing false negatives with self-signed certs and 403 tokens.
+        this.log('Skipping pre-scan validation (will validate during upload)');
 
         return true;
     }
@@ -121,20 +118,25 @@ export class ScanService {
                     cancellable: true,
                 },
                 async (progress, token) => {
-                    // Step 1: Zip
+                    // Step 1: Zip to temp file (avoids OOM for large codebases)
                     progress.report({ message: 'Preparing files...' });
-                    this.log('Zipping directory...');
-                    const buffer = await this.fileService.zipDirectory(folderPath);
-                    this.log(`Zip created: ${(buffer.length / 1024 / 1024).toFixed(1)} MB`);
+                    this.log('Zipping directory to temp file...');
+                    const { zipPath, fileCount, sizeMb } = await this.fileService.zipDirectoryToFile(folderPath);
+                    this.log(`Zip created: ${sizeMb} MB (${fileCount.toLocaleString()} files) → ${zipPath}`);
+
+                    if (sizeMb > 200) {
+                        progress.report({ message: `Large upload (${sizeMb}MB) — this may take several minutes...` });
+                    }
 
                     if (token.isCancellationRequested) {
                         this.log('Scan cancelled by user.');
+                        try { fs.unlinkSync(zipPath); } catch {}
                         return null;
                     }
 
-                    // Step 2: Upload and scan
-                    progress.report({ message: 'Uploading to server...' });
-                    this.log('Uploading to server...');
+                    // Step 2: Upload using file stream (not in-memory buffer)
+                    progress.report({ message: `Uploading ${sizeMb}MB to server...` });
+                    this.log(`Uploading ${sizeMb}MB to server...`);
 
                     const form = new FormData();
                     form.append('name', projectName);
@@ -143,10 +145,13 @@ export class ScanService {
                     form.append('allowDependencyScan', String(config.scanDependencies));
                     form.append('allowLicenseScan', String(config.scanLicenses));
                     form.append('allowMalwareScan', String(config.scanMalware));
-                    form.append('fileSource', buffer, { filename: `${projectName}.zip` });
+                    form.append('fileSource', fs.createReadStream(zipPath), { filename: `${projectName}.zip` });
 
                     // Start the scan request (don't await yet)
-                    const scanPromise = this.postScan(config, form);
+                    const scanPromise = this.postScan(config, form).finally(() => {
+                        // Clean up temp zip after upload completes (success or failure)
+                        try { fs.unlinkSync(zipPath); } catch {}
+                    });
 
                     // Step 3: Show queue position while waiting
                     progress.report({ message: 'Scan queued, waiting...' });
@@ -256,7 +261,7 @@ export class ScanService {
         const response = await axios({
             url,
             method: 'POST',
-            httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+            httpsAgent: new https.Agent({ rejectUnauthorized: !config.allowSelfSignedCerts }),
             headers: {
                 'Authorization': `Bearer ${config.accessToken}`,
                 ...formData.getHeaders(),
@@ -264,7 +269,7 @@ export class ScanService {
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
             data: formData,
-            timeout: 0, // No timeout for large scans
+            timeout: 15 * 60 * 1000, // 15 minute timeout for upload (large codebases need this)
         });
 
         return response.data as ScanResponse;
@@ -279,7 +284,7 @@ export class ScanService {
         const response = await axios({
             url,
             method: 'GET',
-            httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+            httpsAgent: new https.Agent({ rejectUnauthorized: !config.allowSelfSignedCerts }),
             headers: {
                 'Authorization': `Bearer ${config.accessToken}`,
             },

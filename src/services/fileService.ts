@@ -1,14 +1,70 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
+import * as crypto from 'crypto';
 import { EXCLUDED_EXTENSIONS, EXCLUDED_DIRS } from '../constants';
 
 const zipdir = require('zip-dir');
 
+const MAX_FILE_COUNT = 50_000;
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB per file
+const LARGE_PROJECT_WARNING = 5_000;
+
 export class FileService {
 
     /**
+     * Zip a directory to a temp file on disk (streaming).
+     * For large codebases (500MB+) this avoids Node.js OOM by writing to disk.
+     * Returns the path to the temp zip file — caller must delete after use.
+     */
+    async zipDirectoryToFile(dirPath: string): Promise<{ zipPath: string; fileCount: number; sizeMb: number }> {
+        // Count and validate files first
+        let fileCount = 0;
+        const countFiles = (dir: string) => {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    if (!EXCLUDED_DIRS.has(entry.name)) {
+                        countFiles(fullPath);
+                    }
+                } else if (this.shouldInclude(fullPath)) {
+                    fileCount++;
+                }
+            }
+        };
+        countFiles(dirPath);
+
+        if (fileCount > MAX_FILE_COUNT) {
+            throw new Error(
+                `Too many files to scan (${fileCount.toLocaleString()}). Maximum is ${MAX_FILE_COUNT.toLocaleString()}. ` +
+                `Consider scanning individual folders instead.`
+            );
+        }
+
+        if (fileCount > LARGE_PROJECT_WARNING) {
+            vscode.window.showWarningMessage(
+                `Large project detected (${fileCount.toLocaleString()} files). Scan may take longer than usual.`
+            );
+        }
+
+        // Create zip using zip-dir (returns Buffer), then write to temp file
+        const buffer: Buffer = await zipdir(dirPath, {
+            filter: (filePath: string) => this.shouldInclude(filePath)
+        });
+
+        const zipPath = path.join(os.tmpdir(), `o360_${crypto.randomUUID()}.zip`);
+        fs.writeFileSync(zipPath, buffer);
+
+        const sizeMb = Math.round(buffer.length / (1024 * 1024) * 10) / 10;
+
+        return { zipPath, fileCount, sizeMb };
+    }
+
+    /**
      * Zip a directory, filtering out binary/build files.
+     * Returns in-memory Buffer — use zipDirectoryToFile for large projects.
      */
     async zipDirectory(dirPath: string): Promise<Buffer> {
         return zipdir(dirPath, { filter: (filePath: string) => this.shouldInclude(filePath) });

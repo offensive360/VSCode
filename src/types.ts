@@ -108,6 +108,7 @@ export interface VulnerabilityItem {
 export interface ExtensionConfig {
     endpoint: string;
     accessToken: string;
+    allowSelfSignedCerts: boolean;
     autoScanOnSave: boolean;
     scanDependencies: boolean;
     scanLicenses: boolean;

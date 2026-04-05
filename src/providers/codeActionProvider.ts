@@ -118,18 +118,6 @@ export class O360CodeActionProvider implements vscode.CodeActionProvider {
         };
         actions.push(fpAction);
 
-        // 6. Clear all findings
-        const clearAction = new vscode.CodeAction(
-            `$(trash) Clear all findings`,
-            vscode.CodeActionKind.QuickFix
-        );
-        clearAction.diagnostics = [diagnostic];
-        clearAction.command = {
-            command: COMMANDS.CLEAR_ALL,
-            title: 'Clear All',
-        };
-        actions.push(clearAction);
-
         return actions;
     }
 

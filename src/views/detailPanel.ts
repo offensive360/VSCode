@@ -26,7 +26,7 @@ export class DetailPanel {
             `${EXTENSION_NAME}: Vulnerability Details`,
             column,
             {
-                enableScripts: false,
+                enableScripts: true,
                 retainContextWhenHidden: true,
             }
         );
