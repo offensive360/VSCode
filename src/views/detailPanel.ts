@@ -130,15 +130,11 @@ export class DetailPanel {
             .map((r: string) => r.trim())
             .filter((r: string) => r && r.startsWith('http'));
 
-        // Add O360 KB link only if not already in server/KB refs
-        const hasKbLink = [...serverRefs, ...kbRefs].some(r => r.toLowerCase().includes('knowledge-base.offensive360.com'));
-        const autoRefs = hasKbLink ? [] : [
-            `https://knowledge-base.offensive360.com/${(vuln.type || vuln.title || '').replace(/\s+/g, '')}/`,
-        ];
+        // Only use KB links that exist in VulnerabilityInfo.json — never auto-generate from title
 
         // Deduplicate by normalized URL (case-insensitive, ignore trailing slash)
         const seen = new Set<string>();
-        const allRefs = [...kbRefs, ...serverRefs, ...autoRefs].filter(r => {
+        const allRefs = [...kbRefs, ...serverRefs].filter(r => {
             const norm = r.toLowerCase().replace(/\/+$/, '');
             if (seen.has(norm)) { return false; }
             seen.add(norm);
