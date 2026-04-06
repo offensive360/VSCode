@@ -152,7 +152,8 @@ export class DetailPanel {
         }).filter(Boolean);
 
         // Code snippet rendering (no <br> conversion — use pre tag)
-        const codeSnippet = vuln.codeSnippet ? this.escHtml(vuln.codeSnippet) : '';
+        const rawSnippet = vuln.codeSnippet ? this.decodeIfBase64(vuln.codeSnippet) : '';
+        const codeSnippet = rawSnippet ? this.escHtml(rawSnippet) : '';
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -501,6 +502,21 @@ export class DetailPanel {
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;');
+    }
+
+    /** Decode base64 if the server returned encoded code snippets (AI engine) */
+    private decodeIfBase64(value: string): string {
+        if (!value) { return ''; }
+        // Plain code has spaces, parens, quotes — not base64
+        if (value.includes(' ') || value.includes('(') || (value.includes('"') && value.includes('='))) {
+            return value;
+        }
+        try {
+            const decoded = Buffer.from(value, 'base64').toString('utf-8');
+            // Verify it's printable text
+            if (decoded && /^[\x09-\x7e\s]+$/.test(decoded)) { return decoded; }
+        } catch {}
+        return value;
     }
 
     /** Escape for HTML attribute values */
