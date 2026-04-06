@@ -70,6 +70,19 @@ export class DiagnosticManager {
             vuln.riskLevel = normalizeRiskLevel(vuln.riskLevel as any);
         }
 
+        // Filter out findings with no description AND no valid file — incomplete AI-engine results
+        // Also deduplicate by title+file+line
+        const seen = new Set<string>();
+        vulnerabilities = vulnerabilities.filter(v => {
+            const hasDesc = !!(v.vulnerability && v.vulnerability.trim());
+            const hasFile = !!(v.filePath && v.filePath.trim());
+            if (!hasDesc && !hasFile) { return false; }
+            const key = `${v.type}|${v.filePath}|${v.lineNumber}`;
+            if (seen.has(key)) { return false; }
+            seen.add(key);
+            return true;
+        });
+
         const ignoreEntries = this.fileService.readIgnoreEntries();
         const fileDiagnostics = new Map<string, { diagnostics: vscode.Diagnostic[]; items: VulnerabilityItem[] }>();
 
