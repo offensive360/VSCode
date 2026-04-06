@@ -39,10 +39,17 @@ export class ScanService {
      */
     getConfig(): ExtensionConfig {
         const config = vscode.workspace.getConfiguration('o360');
+        const allowSelfSigned = config.get<boolean>('allowSelfSignedCerts', false);
+        // Set global TLS flag for self-signed certs (httpsAgent alone doesn't always work)
+        if (allowSelfSigned) {
+            process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+        } else {
+            delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+        }
         return {
             endpoint: this.trimTrailingSlash(config.get<string>('endpoint', '')),
             accessToken: config.get<string>('accessToken', ''),
-            allowSelfSignedCerts: config.get<boolean>('allowSelfSignedCerts', false),
+            allowSelfSignedCerts: allowSelfSigned,
             autoScanOnSave: config.get<boolean>('autoScanOnSave', false),
             scanDependencies: config.get<boolean>('scanDependencies', true),
             scanLicenses: config.get<boolean>('scanLicenses', false),

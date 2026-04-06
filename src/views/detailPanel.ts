@@ -130,13 +130,20 @@ export class DetailPanel {
             .map((r: string) => r.trim())
             .filter((r: string) => r && r.startsWith('http'));
 
-        // Always add O360 KB link for this vuln type
-        const vulnSlug = (vuln.type || vuln.title || '').replace(/\s+/g, '');
-        const alwaysRefs = [
-            `https://knowledge-base.offensive360.com/${vulnSlug}/`,
+        // Add O360 KB link only if not already in server/KB refs
+        const hasKbLink = [...serverRefs, ...kbRefs].some(r => r.toLowerCase().includes('knowledge-base.offensive360.com'));
+        const autoRefs = hasKbLink ? [] : [
+            `https://knowledge-base.offensive360.com/${(vuln.type || vuln.title || '').replace(/\s+/g, '')}/`,
         ];
 
-        const allRefs = [...new Set([...serverRefs, ...kbRefs, ...alwaysRefs])];
+        // Deduplicate by normalized URL (case-insensitive, ignore trailing slash)
+        const seen = new Set<string>();
+        const allRefs = [...kbRefs, ...serverRefs, ...autoRefs].filter(r => {
+            const norm = r.toLowerCase().replace(/\/+$/, '');
+            if (seen.has(norm)) { return false; }
+            seen.add(norm);
+            return true;
+        });
 
         const refItems = allRefs.map(ref => {
             try {
