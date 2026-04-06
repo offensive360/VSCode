@@ -70,14 +70,14 @@ export class DiagnosticManager {
             vuln.riskLevel = normalizeRiskLevel(vuln.riskLevel as any);
         }
 
-        // Filter out findings with no description AND no valid file — incomplete AI-engine results
-        // Also deduplicate by title+file+line
+        // Filter out findings with no description AND no valid file — incomplete results
+        // Deduplicate by file+line (same location = same finding even if different type)
         const seen = new Set<string>();
         vulnerabilities = vulnerabilities.filter(v => {
             const hasDesc = !!(v.vulnerability && v.vulnerability.trim());
             const hasFile = !!(v.filePath && v.filePath.trim());
             if (!hasDesc && !hasFile) { return false; }
-            const key = `${v.type}|${v.filePath}|${v.lineNumber}`;
+            const key = `${v.filePath}|${v.lineNumber}`;
             if (seen.has(key)) { return false; }
             seen.add(key);
             return true;
