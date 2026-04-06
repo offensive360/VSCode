@@ -253,26 +253,42 @@ export class ScanService {
     }
 
     /**
-     * POST scan request to server.
+     * POST scan request to server with retry on 5xx errors.
      */
     private async postScan(config: ExtensionConfig, formData: any): Promise<ScanResponse | null> {
         const url = `${config.endpoint}${API.EXTERNAL_SCAN}`;
+        const maxRetries = 3;
+        let lastError: any;
 
-        const response = await axios({
-            url,
-            method: 'POST',
-            httpsAgent: new https.Agent({ rejectUnauthorized: !config.allowSelfSignedCerts }),
-            headers: {
-                'Authorization': `Bearer ${config.accessToken}`,
-                ...formData.getHeaders(),
-            },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-            data: formData,
-            timeout: 15 * 60 * 1000, // 15 minute timeout for upload (large codebases need this)
-        });
-
-        return response.data as ScanResponse;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const response = await axios({
+                    url,
+                    method: 'POST',
+                    httpsAgent: new https.Agent({ rejectUnauthorized: !config.allowSelfSignedCerts }),
+                    headers: {
+                        'Authorization': `Bearer ${config.accessToken}`,
+                        ...formData.getHeaders(),
+                    },
+                    maxContentLength: Infinity,
+                    maxBodyLength: Infinity,
+                    data: formData,
+                    timeout: 15 * 60 * 1000,
+                });
+                return response.data as ScanResponse;
+            } catch (err: any) {
+                lastError = err;
+                const status = err?.response?.status;
+                // Retry on 5xx (intermittent server errors like MongoDB 500)
+                if (status && status >= 500 && attempt < maxRetries) {
+                    this.log(`Scan returned HTTP ${status}, retrying (attempt ${attempt}/${maxRetries})...`);
+                    await new Promise(r => setTimeout(r, 5000 * attempt));
+                    continue;
+                }
+                throw err;
+            }
+        }
+        throw lastError;
     }
 
     /**
