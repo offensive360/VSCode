@@ -177,8 +177,12 @@ export class ScanService {
 
                     if (response) {
                         const vulnCount = response.vulnerabilities?.length || 0;
+                        const serverTotal = (response as any).totalVulnerabilities;
                         const depCount = response.dependencyVulnerabilities?.length || 0;
-                        this.log(`Scan complete: ${vulnCount} code vulnerabilities, ${depCount} dependency vulnerabilities`);
+                        if (serverTotal !== undefined && serverTotal !== vulnCount) {
+                            this.log(`WARN: server reported totalVulnerabilities=${serverTotal} but array has ${vulnCount} items`);
+                        }
+                        this.log(`Scan complete: ${vulnCount} code vulnerabilities (server total: ${serverTotal ?? 'n/a'}), ${depCount} dependency vulnerabilities`);
                         this.lastScanResults.set(folderPath, response);
                         this._onScanComplete.fire(response);
                     }

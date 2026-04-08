@@ -70,17 +70,15 @@ export class DiagnosticManager {
             vuln.riskLevel = normalizeRiskLevel(vuln.riskLevel as any);
         }
 
-        // Filter out findings with no description AND no valid file — incomplete results
-        // Deduplicate by file+line (same location = same finding even if different type)
-        const seen = new Set<string>();
+        // Render every finding the server returned — NO client-side dedup.
+        // The server guarantees totalVulnerabilities == vulnerabilities.length and
+        // the dashboard shows the same count. The previous file+line dedup dropped
+        // legitimate multi-finding rows that happened to share a location and caused
+        // the 165/166 count mismatch with the dashboard (2026-04-08 incident).
         vulnerabilities = vulnerabilities.filter(v => {
             const hasDesc = !!(v.vulnerability && v.vulnerability.trim());
             const hasFile = !!(v.filePath && v.filePath.trim());
-            if (!hasDesc && !hasFile) { return false; }
-            const key = `${v.filePath}|${v.lineNumber}`;
-            if (seen.has(key)) { return false; }
-            seen.add(key);
-            return true;
+            return hasDesc || hasFile;
         });
 
         const ignoreEntries = this.fileService.readIgnoreEntries();
