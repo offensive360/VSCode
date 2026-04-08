@@ -125,6 +125,33 @@ export class ScanService {
                     cancellable: true,
                 },
                 async (progress, token) => {
+                    // === DASHBOARD-FIRST LOOKUP (v1.1.8) ===
+                    // Before uploading anything, try to find an existing dashboard
+                    // project whose name matches the current workspace. If found,
+                    // fetch its canonical findings from /LangaugeScanResult — the
+                    // same endpoint the dashboard UI reads from. Plugin display =
+                    // dashboard display, byte-identical, no scan, no upload, no
+                    // server trace.
+                    progress.report({ message: `Looking up dashboard project "${projectName}"…` });
+                    try {
+                        const dashFindings = await this.tryFetchDashboardFindings(config, projectName);
+                        if (dashFindings) {
+                            this.log(`Dashboard-first: matched project with ${dashFindings.vulnerabilities?.length ?? 0} canonical findings`);
+                            this.lastScanResults.set(folderPath, dashFindings);
+                            this._onScanComplete.fire(dashFindings);
+                            return dashFindings;
+                        }
+                        this.log('Dashboard-first: no matching project, will run temporary scan');
+                    } catch (e: any) {
+                        if (e?.message?.includes?.('LICENSE_REQUIRED')) {
+                            throw new Error(
+                                'The Offensive 360 server is locked due to a license issue and is rejecting all requests. ' +
+                                'Please contact your Offensive 360 administrator to reactivate the license.'
+                            );
+                        }
+                        this.log(`Dashboard-first lookup failed (${e?.message ?? 'unknown'}) — will run temporary scan`);
+                    }
+
                     // Step 1: Zip to temp file (avoids OOM for large codebases)
                     progress.report({ message: 'Preparing files...' });
                     this.log('Zipping directory to temp file...');
@@ -147,6 +174,10 @@ export class ScanService {
 
                     const form = new FormData();
                     form.append('name', projectName);
+                    // Temporary scan: server auto-deletes the project immediately
+                    // after the scan. Plugin-triggered scans must not persist on
+                    // the dashboard. This is the fallback path when no existing
+                    // dashboard project matches the workspace name.
                     form.append('keepInvisibleAndDeletePostScan', 'True');
                     form.append('externalScanSourceType', SCAN_SOURCE_TYPE);
                     form.append('allowDependencyScan', String(config.scanDependencies));
@@ -261,6 +292,97 @@ export class ScanService {
         } finally {
             this.scanInProgress = false;
         }
+    }
+
+    /**
+     * Look up an existing dashboard project whose name matches the given
+     * workspace name and return its canonical findings, or null if no match.
+     *
+     * Matching strategy:
+     *   1. Exact case-insensitive name match
+     *   2. Normalized match (strip dots/spaces/underscores/hyphens)
+     *   3. Normalized substring match
+     *
+     * Throws an Error with message "LICENSE_REQUIRED ..." if the server is in
+     * license lock — caller must handle it.
+     */
+    private async tryFetchDashboardFindings(config: ExtensionConfig, projectName: string): Promise<ScanResponse | null> {
+        const listUrl = `${config.endpoint}/app/api/Project`;
+        let listResp: any;
+        try {
+            listResp = await axios({
+                url: listUrl,
+                method: 'GET',
+                httpsAgent: new https.Agent({ rejectUnauthorized: !config.allowSelfSignedCerts }),
+                headers: { 'Authorization': `Bearer ${config.accessToken}` },
+                timeout: 15000,
+            });
+        } catch (err: any) {
+            const body = typeof err?.response?.data === 'string'
+                ? err.response.data
+                : JSON.stringify(err?.response?.data ?? '');
+            if (body && body.toUpperCase().includes('LICENSE_REQUIRED')) {
+                throw new Error(`LICENSE_REQUIRED: ${body}`);
+            }
+            // 401/403/etc — server hasn't granted External tokens read access.
+            // Caller falls back to temporary scan.
+            return null;
+        }
+
+        const items: any[] = Array.isArray(listResp.data)
+            ? listResp.data
+            : (listResp.data?.pageItems ?? []);
+        if (!items.length) return null;
+
+        const norm = (s: string): string => (s || '')
+            .toLowerCase()
+            .replace(/[._\-\s/\\]/g, '');
+        const target = norm(projectName);
+
+        let match = items.find(p => (p.name || '').toLowerCase() === projectName.toLowerCase());
+        if (!match) match = items.find(p => norm(p.name || '') === target);
+        if (!match) match = items.find(p => norm(p.name || '').includes(target) && target.length > 0);
+        if (!match) return null;
+
+        const projectId = match.id;
+        this.log(`Dashboard-first: matched projectId=${projectId} name="${match.name}"`);
+
+        // Fetch canonical findings from /LangaugeScanResult — the same endpoint
+        // the dashboard UI uses. Output is byte-identical to what the dashboard shows.
+        const findingsUrl = `${config.endpoint}/app/api/Project/${projectId}/LangaugeScanResult`;
+        const findingsResp = await axios({
+            url: findingsUrl,
+            method: 'GET',
+            httpsAgent: new https.Agent({ rejectUnauthorized: !config.allowSelfSignedCerts }),
+            headers: { 'Authorization': `Bearer ${config.accessToken}` },
+            timeout: 120000,
+        });
+
+        const rawItems: any[] = Array.isArray(findingsResp.data)
+            ? findingsResp.data
+            : (findingsResp.data?.pageItems ?? []);
+
+        // Map the dashboard field shape to the extension's Vulnerability type.
+        const vulnerabilities = rawItems.map(it => ({
+            id: it.id,
+            title: it.title || it.type || '',
+            type: it.type || '',
+            riskLevel: it.riskLevel,
+            fileName: it.fileName || '',
+            filePath: it.filePath || '',
+            lineNumber: `${it.lineNo ?? 0},${it.columnNo ?? 0}`,
+            vulnerability: it.vulnerability || '',
+            codeSnippet: it.codeSnippet || '',
+            effect: it.effect || '',
+            recommendation: it.recommendation || '',
+            references: it.references || '',
+        }));
+
+        return {
+            projectId,
+            totalVulnerabilities: vulnerabilities.length,
+            vulnerabilities,
+        } as any as ScanResponse;
     }
 
     /**
