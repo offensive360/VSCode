@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as crypto from 'crypto';
-import { EXCLUDED_EXTENSIONS, EXCLUDED_DIRS } from '../constants';
+import { EXCLUDED_EXTENSIONS, EXCLUDED_DIRS, isExcludedFolder } from '../constants';
 
 const zipdir = require('zip-dir');
 
@@ -26,7 +26,8 @@ export class FileService {
             for (const entry of entries) {
                 const fullPath = path.join(dir, entry.name);
                 if (entry.isDirectory()) {
-                    if (!EXCLUDED_DIRS.has(entry.name)) {
+                    // Pattern-based exclusion (handles Backup, Backup1..N, BackupN, etc.)
+                    if (!isExcludedFolder(entry.name)) {
                         countFiles(fullPath);
                     }
                 } else if (this.shouldInclude(fullPath)) {
@@ -87,18 +88,26 @@ export class FileService {
 
     /**
      * Check if a file should be included in the scan zip.
+     * Case-insensitive on BOTH extension and directory parts so we match
+     * VS plugin behaviour (e.g. Backup1/ == backup1/).
      */
     private shouldInclude(filePath: string): boolean {
         const ext = path.extname(filePath).toLowerCase();
-        const basename = path.basename(filePath);
-
-        if (EXCLUDED_EXTENSIONS.has(ext) || EXCLUDED_EXTENSIONS.has(basename)) {
+        if (EXCLUDED_EXTENSIONS.has(ext)) {
             return false;
         }
 
+        // Skip oversized files (50MB cap, matches VS/AS plugins).
+        try {
+            const stat = fs.statSync(filePath);
+            if (stat.isFile() && stat.size > MAX_FILE_SIZE_BYTES) {
+                return false;
+            }
+        } catch { /* best-effort size check */ }
+
         const parts = filePath.replace(/\\/g, '/').split('/');
         for (const part of parts) {
-            if (EXCLUDED_DIRS.has(part)) {
+            if (isExcludedFolder(part)) {
                 return false;
             }
         }

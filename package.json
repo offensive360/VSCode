@@ -2,7 +2,7 @@
   "name": "offensive360",
   "displayName": "O360 SAST",
   "description": "Enterprise static application security testing \u00e2\u20ac\u201d find and fix vulnerabilities directly in your editor",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "publisher": "Offensive360",
   "license": "SEE LICENSE IN offensive-license-terms.md",
   "repository": {
