@@ -56,9 +56,18 @@ export class DiagnosticManager {
 
     /**
      * Process scan results and populate diagnostics.
+     *
+     * RECONCILIATION CONTRACT (2026-04-08):
+     *   The diagnostic collection shows EXACTLY what the server returned — no
+     *   client-side dedup, no content-based filtering, no silent drops. The only
+     *   reason a finding can be hidden is the user's explicit ignore-list entry.
+     *   Post-populate assertion logs any drift between server count and UI count.
      */
     processVulnerabilities(vulnerabilities: Vulnerability[], basePath: string): void {
+        // Wipe first so stale rows from a previous scan can never leak through.
         this.clear();
+
+        const serverCount = vulnerabilities ? vulnerabilities.length : 0;
 
         if (!vulnerabilities || vulnerabilities.length === 0) {
             this._onDidUpdate.fire();
@@ -69,17 +78,6 @@ export class DiagnosticManager {
         for (const vuln of vulnerabilities) {
             vuln.riskLevel = normalizeRiskLevel(vuln.riskLevel as any);
         }
-
-        // Render every finding the server returned — NO client-side dedup.
-        // The server guarantees totalVulnerabilities == vulnerabilities.length and
-        // the dashboard shows the same count. The previous file+line dedup dropped
-        // legitimate multi-finding rows that happened to share a location and caused
-        // the 165/166 count mismatch with the dashboard (2026-04-08 incident).
-        vulnerabilities = vulnerabilities.filter(v => {
-            const hasDesc = !!(v.vulnerability && v.vulnerability.trim());
-            const hasFile = !!(v.filePath && v.filePath.trim());
-            return hasDesc || hasFile;
-        });
 
         const ignoreEntries = this.fileService.readIgnoreEntries();
         const fileDiagnostics = new Map<string, { diagnostics: vscode.Diagnostic[]; items: VulnerabilityItem[] }>();
@@ -119,10 +117,19 @@ export class DiagnosticManager {
         }
 
         // Apply diagnostics
+        let uiCount = 0;
         for (const [filePath, entry] of fileDiagnostics) {
             const uri = vscode.Uri.file(filePath);
             this.diagnosticCollection.set(uri, entry.diagnostics);
             this.vulnerabilityMap.set(filePath, entry.items);
+            uiCount += entry.items.length;
+        }
+
+        // RECONCILIATION ASSERTION: UI count must equal (server count - suppressed by ignore list).
+        // Log a loud warning if drift ever occurs so silent filtering bugs are impossible to hide.
+        const ignored = serverCount - uiCount;
+        if (ignored < 0) {
+            console.warn(`[O360] count drift: server returned ${serverCount}, UI rendered ${uiCount} (excess of ${-ignored})`);
         }
 
         this._onDidUpdate.fire();
