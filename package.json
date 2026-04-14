@@ -1,0 +1,226 @@
+{
+  "name": "offensive360",
+  "displayName": "O360 SAST",
+  "description": "Enterprise static application security testing \u00e2\u20ac\u201d find and fix vulnerabilities directly in your editor",
+  "version": "1.1.4",
+  "publisher": "Offensive360",
+  "license": "SEE LICENSE IN offensive-license-terms.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/offensive360/VSCode.git"
+  },
+  "icon": "images/logo.png",
+  "galleryBanner": {
+    "color": "#1a1a2e",
+    "theme": "dark"
+  },
+  "author": {
+    "name": "Offensive 360"
+  },
+  "keywords": [
+    "security",
+    "sast",
+    "static analysis",
+    "vulnerability",
+    "code security",
+    "offensive 360",
+    "o360",
+    "appsec",
+    "devsecops"
+  ],
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Linters",
+    "Testing",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "type": "object",
+      "title": "O360 SAST",
+      "properties": {
+        "o360.endpoint": {
+          "type": "string",
+          "description": "O360 SAST server endpoint URL (e.g., https://your-server.com:1800)",
+          "default": "",
+          "order": 1
+        },
+        "o360.accessToken": {
+          "type": "string",
+          "description": "API access token (generated from O360 SAST dashboard under Settings \u00e2\u2020\u2019 Tokens)",
+          "default": "",
+          "order": 2
+        },
+        "o360.autoScanOnSave": {
+          "type": "boolean",
+          "description": "Automatically scan the current file when saved",
+          "default": false,
+          "order": 3
+        },
+        "o360.scanDependencies": {
+          "type": "boolean",
+          "description": "Include dependency vulnerability scanning (SCA)",
+          "default": true,
+          "order": 4
+        },
+        "o360.scanLicenses": {
+          "type": "boolean",
+          "description": "Include open source license compliance scanning",
+          "default": false,
+          "order": 5
+        },
+        "o360.scanMalware": {
+          "type": "boolean",
+          "description": "Include malware detection scanning",
+          "default": false,
+          "order": 6
+        },
+        "o360.allowSelfSignedCerts": {
+          "type": "boolean",
+          "description": "Allow self-signed SSL certificates (for on-premise instances with HTTPS)",
+          "default": false,
+          "order": 7
+        },
+        "o360.showInlineDetails": {
+          "type": "boolean",
+          "description": "Show vulnerability details on hover",
+          "default": true,
+          "order": 8
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "o360-sast",
+          "title": "O360 SAST",
+          "icon": "images/logo.png"
+        }
+      ]
+    },
+    "views": {
+      "o360-sast": [
+        {
+          "id": "o360VulnerabilityTree",
+          "name": "Security Findings",
+          "icon": "$(shield)",
+          "contextualTitle": "O360 SAST"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "o360VulnerabilityTree",
+        "contents": "No security findings yet.\n[Scan Workspace](command:o360.scanWorkspace)\nConfigure your O360 server endpoint in [Settings](command:workbench.action.openSettings?%22o360.endpoint%22)."
+      }
+    ],
+    "commands": [
+      {
+        "command": "o360.scanFile",
+        "title": "O360 SAST: Scan File",
+        "icon": "$(play)"
+      },
+      {
+        "command": "o360.scanFolder",
+        "title": "O360 SAST: Scan Folder",
+        "icon": "$(play)"
+      },
+      {
+        "command": "o360.scanWorkspace",
+        "title": "O360 SAST: Scan Workspace",
+        "icon": "$(play-circle)"
+      },
+      {
+        "command": "o360.clearAll",
+        "title": "O360 SAST: Clear All Findings",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "o360.refreshTree",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "o360.scanFile",
+          "when": "!explorerResourceIsFolder",
+          "group": "o360@1"
+        },
+        {
+          "command": "o360.scanFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "o360@2"
+        },
+        {
+          "command": "o360.scanWorkspace",
+          "when": "workspaceFolderCount != 0",
+          "group": "o360@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "o360.scanFile",
+          "group": "o360@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "o360.scanFile",
+          "group": "navigation",
+          "when": "resourceScheme == file"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "o360.scanWorkspace",
+          "when": "view == o360VulnerabilityTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "o360.refreshTree",
+          "when": "view == o360VulnerabilityTree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "o360.clearAll",
+          "when": "view == o360VulnerabilityTree",
+          "group": "navigation@3"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npx esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^18.x",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/test-electron": "^2.3.0",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.27.4",
+    "eslint": "^8.50.0",
+    "socks-proxy-agent": "^10.0.0",
+    "typescript": "^5.2.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "form-data": "^4.0.0",
+    "zip-dir": "^2.0.0"
+  }
+}
