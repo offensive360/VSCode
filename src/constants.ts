@@ -19,6 +19,7 @@ export const COMMANDS = {
     CLEAR_ALL: 'o360.clearAll',
     REFRESH_TREE: 'o360.refreshTree',
     FOCUS_VULNERABILITY: 'o360.focusVulnerability',
+    CHECK_UPDATE: 'o360.checkForUpdates',
 } as const;
 
 export const VIEWS = {
@@ -43,26 +44,55 @@ export const SEVERITY_ICONS: Record<string, string> = {
     'Info': '$(info)',
 };
 
+// KEEP IN LOCKSTEP with VS plugin's ScanCache.ExcludeExts and AS plugin's
+// FileCollector.EXCLUDE_EXTS. Any change here MUST be mirrored in the other
+// two plugins — otherwise the three IDEs will start producing different
+// finding counts for the same project (VS v1.12.11 / AS v1.1.9 / VSCode v1.1.6
+// incident: 106 / 74 / ?? on the same WebGoat.NET).
+//
+// All entries must be LOWERCASE because the check is now case-insensitive.
 export const EXCLUDED_EXTENSIONS = new Set([
-    '.DS_Store', '.ipr', '.iws', '.bak', '.tmp',
-    '.aac', '.aif', '.iff', '.m3u', '.mid', '.mp3', '.mpa', '.ra', '.wav', '.wma',
-    '.3g2', '.3gp', '.asf', '.asx', '.avi', '.flv', '.mov', '.mp4', '.mpg', '.rm', '.swf', '.vob', '.wmv',
-    '.bmp', '.gif', '.jpg', '.jpeg', '.png', '.psd', '.tif', '.tiff', '.ico', '.svg', '.webp',
-    '.jar', '.zip', '.rar', '.exe', '.dll', '.pdb', '.7z', '.gz', '.tar', '.war', '.ear',
-    '.class', '.iml', '.o', '.so', '.dylib', '.pyc', '.pyo',
-    '.woff', '.woff2', '.ttf', '.eot', '.otf',
-    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-    '.sqlite', '.db', '.lock',
+    '.zip', '.dll', '.pdf', '.exe', '.ds_store', '.bak', '.tmp',
+    '.mp3', '.mp4', '.wav', '.avi', '.mov', '.wmv', '.flv',
+    '.bmp', '.gif', '.jpg', '.jpeg', '.png', '.psd', '.tif', '.tiff', '.ico', '.svg',
+    '.jar', '.rar', '.7z', '.gz', '.tar', '.war', '.ear',
+    '.pdb', '.class', '.iml', '.nupkg', '.vsix', '.aar',
+    '.woff', '.woff2', '.ttf', '.otf', '.eot',
+    '.db', '.sqlite', '.mdb', '.lock',
+    '.sln', '.csproj', '.vbproj', '.vcxproj', '.fsproj', '.proj',
+    '.suo', '.user', '.cache', '.snk', '.pfx', '.p12',
 ]);
 
+// KEEP IN LOCKSTEP with VS plugin's ScanCache.ExcludeFolders and AS plugin's
+// FileCollector.SKIP_DIRS. Case-insensitive check — all entries lowercase.
+// NOTE: backup<N> folders are matched by isExcludedFolder() pattern in
+// fileService.ts, not by this literal set, so don't add backup4/5/etc here.
 export const EXCLUDED_DIRS = new Set([
-    'node_modules', '.git', '.svn', '.hg', '.bzr',
-    'bin', 'obj', 'out', 'dist', 'build', 'target',
-    '.idea', '.vscode', '.vs',
-    'backup', '__pycache__', '.cache',
-    'vendor', 'packages', 'bower_components',
-    'coverage', '.nyc_output',
+    '.vs', 'cvs', '.svn', '.hg', '.git', '.bzr', 'bin', 'obj',
+    '.idea', '.vscode', 'node_modules', 'packages',
+    'dist', 'build', 'out', 'target', '.gradle', '__pycache__',
+    '.sasto360', 'testresults', 'test-results', '.nuget',
+    '.node_modules', '.pytest_cache', '.next', 'coverage',
 ]);
+
+/**
+ * True if the given single-segment folder name should be skipped.
+ * Combines literal-set lookup with a pattern match for backup folders so
+ * VS migration's auto-created Backup4/Backup5 (and any future variant)
+ * is automatically excluded without updating the literal list. Matches
+ * "backup", "backups", or "backup<digits>".
+ */
+export function isExcludedFolder(name: string): boolean {
+    if (!name) return false;
+    const lower = name.toLowerCase();
+    if (EXCLUDED_DIRS.has(lower)) return true;
+    if (lower === 'backup' || lower === 'backups') return true;
+    if (lower.startsWith('backup') && lower.length > 6) {
+        const tail = lower.substring(6);
+        return /^\d+$/.test(tail);
+    }
+    return false;
+}
 
 export const MAX_QUEUE_WAIT_MINUTES = 60;
 export const QUEUE_POLL_INTERVAL_SEC = 10;

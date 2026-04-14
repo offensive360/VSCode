@@ -1,8 +1,8 @@
 {
   "name": "offensive360",
   "displayName": "O360 SAST",
-  "description": "Enterprise static application security testing \u00e2\u20ac\u201d find and fix vulnerabilities directly in your editor",
-  "version": "1.1.4",
+  "description": "Enterprise static application security testing â€” find and fix vulnerabilities directly in your editor",
+  "version": "1.1.9",
   "publisher": "Offensive360",
   "license": "SEE LICENSE IN offensive-license-terms.md",
   "repository": {
@@ -53,7 +53,7 @@
         },
         "o360.accessToken": {
           "type": "string",
-          "description": "API access token (generated from O360 SAST dashboard under Settings \u00e2\u2020\u2019 Tokens)",
+          "description": "API access token (generated from O360 SAST dashboard under Settings â†’ Tokens)",
           "default": "",
           "order": 2
         },
@@ -145,6 +145,10 @@
         "command": "o360.refreshTree",
         "title": "Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "o360.checkForUpdates",
+        "title": "Offensive 360: Check for Updates"
       }
     ],
     "menus": {

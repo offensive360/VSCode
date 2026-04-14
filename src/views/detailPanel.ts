@@ -78,7 +78,7 @@ export class DetailPanel {
 
         try {
             const result = await new Promise<any>((resolve, reject) => {
-                const req = https.get(url, { timeout: 5000, rejectUnauthorized: false }, (res) => {
+                const req = https.get(url, { timeout: 5000 }, (res) => {
                     if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
                     let data = '';
                     res.on('data', (chunk) => { data += chunk; });

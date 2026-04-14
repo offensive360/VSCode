@@ -173,6 +173,50 @@ export function activate(context: vscode.ExtensionContext) {
         editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
     }));
 
+    // Check for Updates
+    context.subscriptions.push(vscode.commands.registerCommand(COMMANDS.CHECK_UPDATE, async () => {
+        const currentVersion = context.extension.packageJSON.version || '1.1.8';
+        const apiUrl = 'https://api.github.com/repos/offensive360/VSCode/releases/latest';
+        try {
+            const https = await import('https');
+            const body: string = await new Promise((resolve, reject) => {
+                const req = https.get(apiUrl, {
+                    headers: { 'User-Agent': `Offensive360-VSCode/${currentVersion}`, 'Accept': 'application/vnd.github+json' },
+                    timeout: 15000
+                }, (res) => {
+                    if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
+                    let data = '';
+                    res.on('data', (chunk: string) => data += chunk);
+                    res.on('end', () => resolve(data));
+                });
+                req.on('error', reject);
+                req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+            });
+            const release = JSON.parse(body);
+            const latestVersion = (release.tag_name || '').replace(/^v/i, '');
+            if (!latestVersion) {
+                vscode.window.showInformationMessage('Could not determine the latest version.');
+                return;
+            }
+            const isNewer = latestVersion.localeCompare(currentVersion, undefined, { numeric: true }) > 0;
+            if (!isNewer) {
+                vscode.window.showInformationMessage(`Offensive 360: You're up to date (v${currentVersion}).`);
+                return;
+            }
+            const notes = (release.body || '').substring(0, 500);
+            const action = await vscode.window.showInformationMessage(
+                `Offensive 360: v${latestVersion} is available (you have v${currentVersion}).\n\n${notes}`,
+                'Download', 'Later'
+            );
+            if (action === 'Download') {
+                const url = release.html_url || `https://github.com/offensive360/VSCode/releases/tag/v${latestVersion}`;
+                vscode.env.openExternal(vscode.Uri.parse(url));
+            }
+        } catch (err: any) {
+            vscode.window.showWarningMessage(`Could not check for updates: ${err.message || 'Unknown error'}`);
+        }
+    }));
+
     // ── Auto-scan on save ────────────────────────────────────
 
     context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(async (document) => {
