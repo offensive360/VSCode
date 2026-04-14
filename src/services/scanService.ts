@@ -8,6 +8,34 @@ import { FileService } from './fileService';
 
 const axios = require('axios');
 
+/**
+ * Detects transient network drops where the upload TCP connection died
+ * mid-flight (proxy / load-balancer idle timeout, server stream close).
+ * The scan often continues server-side even after this happens.
+ */
+function isNetworkDrop(err: any): boolean {
+    if (!err) return false;
+    const code = err.code || err?.cause?.code;
+    if (code === 'ECONNRESET' || code === 'ECONNABORTED' || code === 'ETIMEDOUT' ||
+        code === 'EPIPE' || code === 'ENETUNREACH' || code === 'ENETDOWN' ||
+        code === 'ERR_BAD_RESPONSE' || code === 'ERR_NETWORK') {
+        return true;
+    }
+    const msg = String(err.message || '').toLowerCase();
+    return msg.includes('socket hang up') ||
+           msg.includes('client network socket disconnected') ||
+           msg.includes('network error');
+}
+
+/** httpsAgent with TCP keepalive — keeps the connection warm so proxies don't kill it. */
+function makeAgent(allowSelfSigned: boolean): https.Agent {
+    return new https.Agent({
+        rejectUnauthorized: !allowSelfSigned,
+        keepAlive: true,
+        keepAliveMsecs: 30000,
+    });
+}
+
 export class ScanService {
     private outputChannel: vscode.OutputChannel;
     private fileService: FileService;
@@ -204,7 +232,21 @@ export class ScanService {
                     progress.report({ message: 'Scanning in progress...' });
                     this.log('Scan in progress on server...');
 
-                    const response = await scanPromise;
+                    let response: ScanResponse | null;
+                    try {
+                        response = await scanPromise;
+                    } catch (err: any) {
+                        if (err?.code === 'UPLOAD_DROPPED') {
+                            // Upload connection dropped after the server already started
+                            // processing. Poll the dashboard for the project to finish
+                            // instead of failing the scan.
+                            progress.report({ message: 'Network blip — waiting for the server to finish (scan continues server-side)…' });
+                            response = await this.waitForServerToFinish(config, projectName, folderPath, progress, token);
+                            if (!response) throw err;
+                        } else {
+                            throw err;
+                        }
+                    }
 
                     if (response) {
                         const vulnCount = response.vulnerabilities?.length || 0;
@@ -275,7 +317,18 @@ export class ScanService {
 
                     progress.report({ message: 'Scanning...' });
 
-                    const response = await this.postScan(config, form);
+                    let response: ScanResponse | null;
+                    try {
+                        response = await this.postScan(config, form);
+                    } catch (err: any) {
+                        if (err?.code === 'UPLOAD_DROPPED') {
+                            progress.report({ message: 'Network blip — waiting for the server to finish (scan continues server-side)…' });
+                            response = await this.waitForServerToFinish(config, projectName, require('path').dirname(filePath), progress, token);
+                            if (!response) throw err;
+                        } else {
+                            throw err;
+                        }
+                    }
 
                     if (response) {
                         this.lastScanResults.set(filePath, response);
@@ -292,6 +345,54 @@ export class ScanService {
         } finally {
             this.scanInProgress = false;
         }
+    }
+
+    /**
+     * Poll the dashboard for a freshly-uploaded project to finish scanning.
+     * Used when the upload connection drops mid-flight but the server is
+     * still processing. Returns the canonical findings once the project
+     * appears on the dashboard, or null on timeout / cancellation.
+     */
+    private async waitForServerToFinish(
+        config: ExtensionConfig,
+        projectName: string,
+        folderPath: string,
+        progress: vscode.Progress<{ message?: string }>,
+        token: vscode.CancellationToken
+    ): Promise<ScanResponse | null> {
+        const maxWaitMs = 60 * 60 * 1000; // 1 hour cap
+        const pollIntervalMs = 15 * 1000;
+        const startedAt = Date.now();
+        let lastLoggedMin = -1;
+
+        while (Date.now() - startedAt < maxWaitMs) {
+            if (token.isCancellationRequested) {
+                this.log('Server-completion poll cancelled by user.');
+                return null;
+            }
+
+            try {
+                const found = await this.tryFetchDashboardFindings(config, projectName, folderPath);
+                if (found) {
+                    this.log(`Server-completion poll: results fetched after upload-drop (${found.vulnerabilities?.length ?? 0} findings).`);
+                    return found;
+                }
+            } catch (e: any) {
+                if (e?.message?.includes?.('LICENSE_REQUIRED')) throw e;
+                // Otherwise transient — keep polling.
+            }
+
+            const elapsedMin = Math.floor((Date.now() - startedAt) / 60000);
+            if (elapsedMin !== lastLoggedMin) {
+                progress.report({ message: `Waiting for server to finish… (${elapsedMin}m)` });
+                lastLoggedMin = elapsedMin;
+            }
+
+            await this.sleep(pollIntervalMs / 1000);
+        }
+
+        this.log('Server-completion poll: timed out after 1h, no results visible on dashboard.');
+        return null;
     }
 
     /**
@@ -314,7 +415,7 @@ export class ScanService {
             listResp = await axios({
                 url: listUrl,
                 method: 'GET',
-                httpsAgent: new https.Agent({ rejectUnauthorized: !config.allowSelfSignedCerts }),
+                httpsAgent: makeAgent(config.allowSelfSignedCerts),
                 headers: { 'Authorization': `Bearer ${config.accessToken}` },
                 timeout: 15000,
             });
@@ -377,7 +478,7 @@ export class ScanService {
         const findingsResp = await axios({
             url: findingsUrl,
             method: 'GET',
-            httpsAgent: new https.Agent({ rejectUnauthorized: !config.allowSelfSignedCerts }),
+            httpsAgent: makeAgent(config.allowSelfSignedCerts),
             headers: { 'Authorization': `Bearer ${config.accessToken}` },
             timeout: 120000,
         });
@@ -410,7 +511,11 @@ export class ScanService {
     }
 
     /**
-     * POST scan request to server with retry on 5xx errors.
+     * POST scan request to server with retry on 5xx and on network drops
+     * (socket hang up / ECONNRESET / ETIMEDOUT). After a network drop the
+     * server may already be processing the upload, so retrying the upload
+     * is wasteful — we surface a tagged error so the caller can fall back
+     * to polling the dashboard for completion.
      */
     private async postScan(config: ExtensionConfig, formData: any): Promise<ScanResponse | null> {
         const url = `${config.endpoint}${API.EXTERNAL_SCAN}`;
@@ -422,9 +527,10 @@ export class ScanService {
                 const response = await axios({
                     url,
                     method: 'POST',
-                    httpsAgent: new https.Agent({ rejectUnauthorized: !config.allowSelfSignedCerts }),
+                    httpsAgent: makeAgent(config.allowSelfSignedCerts),
                     headers: {
                         'Authorization': `Bearer ${config.accessToken}`,
+                        'Connection': 'keep-alive',
                         ...formData.getHeaders(),
                     },
                     maxContentLength: Infinity,
@@ -436,6 +542,16 @@ export class ScanService {
             } catch (err: any) {
                 lastError = err;
                 const status = err?.response?.status;
+                // Network drop: the server likely still processing — surface a tagged
+                // error so the caller can poll the dashboard for completion instead
+                // of re-uploading. Don't retry the upload.
+                if (isNetworkDrop(err)) {
+                    this.log(`Upload connection dropped (${err?.code || err?.message}). Server may still be processing — switching to dashboard polling.`);
+                    const dropErr: any = new Error('UPLOAD_DROPPED');
+                    dropErr.code = 'UPLOAD_DROPPED';
+                    dropErr.cause = err;
+                    throw dropErr;
+                }
                 // Retry on 5xx (intermittent server errors like MongoDB 500)
                 if (status && status >= 500 && attempt < maxRetries) {
                     this.log(`Scan returned HTTP ${status}, retrying (attempt ${attempt}/${maxRetries})...`);
@@ -457,7 +573,7 @@ export class ScanService {
         const response = await axios({
             url,
             method: 'GET',
-            httpsAgent: new https.Agent({ rejectUnauthorized: !config.allowSelfSignedCerts }),
+            httpsAgent: makeAgent(config.allowSelfSignedCerts),
             headers: {
                 'Authorization': `Bearer ${config.accessToken}`,
             },

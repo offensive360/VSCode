@@ -2,6 +2,11 @@
 
 All notable changes to the O360 SAST extension will be documented in this file.
 
+## [1.1.10] - 2026-04-14
+
+### Fixed
+- Resolved "socket hang up" errors during long scans: the upload now uses a keep-alive HTTPS agent, and the plugin transparently waits for the server to finish when the upload connection drops mid-flight (the scan continues server-side). No more failed scans on flaky networks or proxies with short idle timeouts.
+
 ## [1.0.0] - 2026-03-10
 
 ### Added
