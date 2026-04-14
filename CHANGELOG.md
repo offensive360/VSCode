@@ -2,6 +2,11 @@
 
 All notable changes to the O360 SAST extension will be documented in this file.
 
+## [1.1.11] - 2026-04-14
+
+### Added
+- Background update check on activation. The extension now polls the GitHub release feed once per day and prompts you when a new version is available, independent of the marketplace. Useful in air-gapped or proxied environments where marketplace auto-updates are blocked.
+
 ## [1.1.10] - 2026-04-14
 
 ### Fixed

@@ -231,6 +231,10 @@ export function activate(context: vscode.ExtensionContext) {
         handleScanResults(result, path.dirname(document.uri.fsPath));
     }));
 
+    // ── Auto update notifier (independent of the marketplace) ─
+
+    autoCheckForUpdates(context).catch(() => { /* silent */ });
+
     // ── Disposables ──────────────────────────────────────────
 
     context.subscriptions.push(
@@ -242,6 +246,59 @@ export function activate(context: vscode.ExtensionContext) {
         codeActionProvider,
         hoverProvider,
     );
+}
+
+/**
+ * Background, throttled update check that goes directly to GitHub Releases
+ * — independent of the VS Code marketplace. Fires on activation, throttled
+ * to once per 24 h, silent on any failure.
+ */
+async function autoCheckForUpdates(context: vscode.ExtensionContext): Promise<void> {
+    const LAST_CHECK_KEY = 'o360.lastUpdateCheckMs';
+    const TTL_MS = 24 * 60 * 60 * 1000;
+
+    const lastCheck = context.globalState.get<number>(LAST_CHECK_KEY, 0);
+    if (Date.now() - lastCheck < TTL_MS) return;
+    context.globalState.update(LAST_CHECK_KEY, Date.now());
+
+    const currentVersion: string = context.extension.packageJSON.version || '0.0.0';
+    const apiUrl = 'https://api.github.com/repos/offensive360/VSCode/releases/latest';
+    try {
+        const https = await import('https');
+        const body: string = await new Promise((resolve, reject) => {
+            const req = https.get(apiUrl, {
+                headers: { 'User-Agent': `Offensive360-VSCode/${currentVersion}`, 'Accept': 'application/vnd.github+json' },
+                timeout: 10000,
+            }, (res) => {
+                if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
+                let data = '';
+                res.on('data', (chunk: string) => data += chunk);
+                res.on('end', () => resolve(data));
+            });
+            req.on('error', reject);
+            req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+        });
+        const release = JSON.parse(body);
+        if (release.draft || release.prerelease) return;
+        const latestVersion = String(release.tag_name || '').replace(/^v/i, '');
+        if (!latestVersion) return;
+        const isNewer = latestVersion.localeCompare(currentVersion, undefined, { numeric: true }) > 0;
+        if (!isNewer) return;
+
+        const action = await vscode.window.showInformationMessage(
+            `Offensive 360: v${latestVersion} is available (you have v${currentVersion}).`,
+            'Download', 'Later'
+        );
+        if (action === 'Download') {
+            // Prefer direct .vsix asset if present, otherwise the release page
+            const assets: any[] = release.assets || [];
+            const vsix = assets.find(a => typeof a?.name === 'string' && a.name.toLowerCase().endsWith('.vsix'));
+            const url = vsix?.browser_download_url || release.html_url || `https://github.com/offensive360/VSCode/releases/tag/v${latestVersion}`;
+            vscode.env.openExternal(vscode.Uri.parse(url));
+        }
+    } catch {
+        // Silent: update notifications must not surface errors to the user.
+    }
 }
 
 function updateStatusBar(count: number, scanning: boolean) {
