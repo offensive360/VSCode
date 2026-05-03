@@ -2,6 +2,12 @@
 
 All notable changes to the O360 SAST extension will be documented in this file.
 
+## [1.1.12] - 2026-05-03
+
+### Fixed
+- Eliminated 1-hour silent hang after upload-drop when using an External token. Previously, if the upload connection dropped mid-flight, the plugin would fall back to polling the dashboard for the project's completion — but External tokens get 403 on `/Project` listing, so the poll could never succeed and timed out after 1h with `UPLOAD_DROPPED`. The plugin now detects this case up front and returns a clear, actionable error immediately ("Upload connection dropped and dashboard polling is not available for this token..."), instead of silently waiting an hour.
+- The pre-check is fast (single GET, 15s timeout) and only runs in the recovery path, so normal scans are unaffected.
+
 ## [1.1.11] - 2026-04-14
 
 ### Added

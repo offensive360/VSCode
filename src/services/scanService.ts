@@ -242,7 +242,9 @@ export class ScanService {
                             // instead of failing the scan.
                             progress.report({ message: 'Network blip — waiting for the server to finish (scan continues server-side)…' });
                             response = await this.waitForServerToFinish(config, projectName, folderPath, progress, token);
-                            if (!response) throw err;
+                            if (!response) {
+                                throw new Error('Upload connection dropped and dashboard polling is not available for this token (External tokens cannot list projects). Please retry the scan, reduce project size, or use a token with dashboard read access.');
+                            }
                         } else {
                             throw err;
                         }
@@ -324,7 +326,9 @@ export class ScanService {
                         if (err?.code === 'UPLOAD_DROPPED') {
                             progress.report({ message: 'Network blip — waiting for the server to finish (scan continues server-side)…' });
                             response = await this.waitForServerToFinish(config, projectName, require('path').dirname(filePath), progress, token);
-                            if (!response) throw err;
+                            if (!response) {
+                                throw new Error('Upload connection dropped and dashboard polling is not available for this token (External tokens cannot list projects). Please retry the scan, reduce project size, or use a token with dashboard read access.');
+                            }
                         } else {
                             throw err;
                         }
@@ -365,6 +369,14 @@ export class ScanService {
         const startedAt = Date.now();
         let lastLoggedMin = -1;
 
+        // Pre-check: if the token can't read /Project (401/403 — typical for
+        // External tokens), there's no point polling for an hour. Abort fast.
+        const canReadDashboard = await this.canListProjects(config);
+        if (!canReadDashboard) {
+            this.log('Server-completion poll: token has no dashboard read access (External token); skipping 1h poll.');
+            return null;
+        }
+
         while (Date.now() - startedAt < maxWaitMs) {
             if (token.isCancellationRequested) {
                 this.log('Server-completion poll cancelled by user.');
@@ -393,6 +405,29 @@ export class ScanService {
 
         this.log('Server-completion poll: timed out after 1h, no results visible on dashboard.');
         return null;
+    }
+
+    /**
+     * Returns true if the configured token is allowed to GET /app/api/Project
+     * (i.e. has dashboard read access). External tokens get 401/403 here, so
+     * there is no point polling the dashboard for them after an upload drop.
+     */
+    private async canListProjects(config: ExtensionConfig): Promise<boolean> {
+        try {
+            await axios({
+                url: `${config.endpoint}/app/api/Project?pageSize=1&pageNumber=1`,
+                method: 'GET',
+                httpsAgent: makeAgent(config.allowSelfSignedCerts),
+                headers: { 'Authorization': `Bearer ${config.accessToken}` },
+                timeout: 15000,
+            });
+            return true;
+        } catch (err: any) {
+            const status = err?.response?.status;
+            if (status === 401 || status === 403) return false;
+            // Other errors (network, 5xx) — assume reachable, let main poll retry.
+            return true;
+        }
     }
 
     /**
