@@ -56,7 +56,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Helper: process scan results
     function handleScanResults(response: any, basePath: string) {
-        if (!response) { return; }
+        if (!response) {
+            // A failed or cancelled scan must not leave the status bar on "Scanning...".
+            updateStatusBar(diagnosticManager.totalCount, false);
+            return;
+        }
 
         const vulns = response.vulnerabilities || [];
         if (vulns.length === 0) {

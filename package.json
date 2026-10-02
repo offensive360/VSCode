@@ -2,7 +2,7 @@
   "name": "offensive360",
   "displayName": "O360 SAST",
   "description": "Enterprise static application security testing â€” find and fix vulnerabilities directly in your editor",
-  "version": "1.1.12",
+  "version": "1.1.13",
   "publisher": "Offensive360",
   "license": "SEE LICENSE IN offensive-license-terms.md",
   "repository": {
@@ -53,7 +53,7 @@
         },
         "o360.accessToken": {
           "type": "string",
-          "description": "API access token (generated from O360 SAST dashboard under Settings â†’ Tokens)",
+          "description": "API access token (generated from O360 SAST dashboard under Settings → Tokens)",
           "default": "",
           "order": 2
         },
@@ -208,7 +208,8 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
-    "package": "npx @vscode/vsce package --no-dependencies"
+    "package": "npx @vscode/vsce package --no-dependencies",
+    "test:unit": "npx esbuild src/services/tokenInfo.ts --bundle --platform=node --format=cjs --outfile=out/tokenInfo.test-bundle.js && node test/tokenInfo.test.js"
   },
   "devDependencies": {
     "@types/node": "^18.x",

@@ -5,6 +5,7 @@ const FormData = require('form-data');
 import { API, SCAN_SOURCE_TYPE, MAX_QUEUE_WAIT_MINUTES, QUEUE_POLL_INTERVAL_SEC, EXTENSION_NAME } from '../constants';
 import { ScanResponse, ExtensionConfig, Vulnerability } from '../types';
 import { FileService } from './fileService';
+import { isTokenExpired, rejectedMessage, failureMessage, unreachableMessage, isCertificateError } from './tokenInfo';
 
 const axios = require('axios');
 
@@ -153,6 +154,9 @@ export class ScanService {
                     cancellable: true,
                 },
                 async (progress, token) => {
+                    progress.report({ message: 'Checking the access token…' });
+                    await this.preflight(config);
+
                     // === DASHBOARD-FIRST LOOKUP (v1.1.8) ===
                     // Before uploading anything, try to find an existing dashboard
                     // project whose name matches the current workspace. If found,
@@ -302,6 +306,9 @@ export class ScanService {
                     cancellable: true,
                 },
                 async (progress, token) => {
+                    progress.report({ message: 'Checking the access token…' });
+                    await this.preflight(config);
+
                     progress.report({ message: `Scanning ${require('path').basename(filePath)}...` });
 
                     const { buffer } = await this.fileService.zipSingleFile(filePath);
@@ -552,6 +559,50 @@ export class ScanService {
      * is wasteful — we surface a tagged error so the caller can fall back
      * to polling the dashboard for completion.
      */
+    /**
+     * v1.1.13: check the access token BEFORE zipping and uploading. A refused token used to
+     * surface as a dropped upload (the server closes the connection while the archive is still
+     * being sent), which looked like an endless scan or a network problem. One small GET to an
+     * endpoint every access token may call tells us up front, and lets us say exactly why.
+     * A refused token, an untrusted certificate or an unreachable server stops the scan with a
+     * clear message; any other HTTP answer is logged and the scan goes on.
+     */
+    private async preflight(config: ExtensionConfig): Promise<void> {
+        if (isTokenExpired(config.accessToken)) {
+            throw new Error(rejectedMessage(401, null, config.accessToken));
+        }
+        let lastErr: any;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                await axios({
+                    url: `${config.endpoint}${API.QUEUE_POSITION}?projectName=o360-preflight`,
+                    method: 'GET',
+                    httpsAgent: makeAgent(config.allowSelfSignedCerts),
+                    headers: { 'Authorization': `Bearer ${config.accessToken}` },
+                    timeout: 15000,
+                });
+                return;
+            } catch (err: any) {
+                lastErr = err;
+                const status = err?.response?.status;
+                if (status === 401 || status === 403) {
+                    throw new Error(rejectedMessage(status, err?.response?.data, config.accessToken));
+                }
+                if (status) {
+                    // The server answered (404 on an older build, 429, 5xx...): not a token or
+                    // connectivity problem we can name, so let the scan itself decide.
+                    this.log(`Pre-flight check inconclusive (HTTP ${status}) - continuing with the scan`);
+                    return;
+                }
+                if (isCertificateError(err)) { break; }
+                this.log(`Pre-flight attempt ${attempt} got no answer (${err?.code ?? err?.message})`);
+                if (attempt < 2) { await new Promise(r => setTimeout(r, 2000)); }
+            }
+        }
+        // No HTTP answer at all after a retry: uploading the archive cannot work either.
+        throw new Error(failureMessage(lastErr, config.allowSelfSignedCerts) ?? unreachableMessage(config.endpoint, lastErr));
+    }
+
     private async postScan(config: ExtensionConfig, formData: any): Promise<ScanResponse | null> {
         const url = `${config.endpoint}${API.EXTERNAL_SCAN}`;
         const maxRetries = 3;
@@ -577,6 +628,10 @@ export class ScanService {
             } catch (err: any) {
                 lastError = err;
                 const status = err?.response?.status;
+                // A refused token is an answer, not a network problem: explain it and stop.
+                if (status === 401 || status === 403) {
+                    throw new Error(rejectedMessage(status, err?.response?.data, config.accessToken));
+                }
                 // Network drop: the server likely still processing — surface a tagged
                 // error so the caller can poll the dashboard for completion instead
                 // of re-uploading. Don't retry the upload.

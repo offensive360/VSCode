@@ -2,6 +2,15 @@
 
 All notable changes to the O360 SAST extension will be documented in this file.
 
+## [1.1.13] - 2026-10-02
+
+### Fixed
+- A refused access token no longer looks like an endless scan or a network problem. The extension now checks the token before it zips and uploads anything, and tells you exactly what is wrong: the token expired (with the date), it was revoked or belongs to another server, or the server licence is not active, together with the steps to generate a new token.
+- An untrusted server certificate (self-signed or internal CA, normal for on-premise instances) is explained and points to the "O360: Allow Self Signed Certs" setting instead of a raw TLS error.
+- A server that cannot be reached at all (wrong endpoint, VPN down, proxy closing the connection) is reported within seconds instead of after a long wait.
+- The status bar no longer stays on "Scanning..." after a scan has failed or was cancelled.
+- Fixed the garbled arrow in the Access Token setting description.
+
 ## [1.1.12] - 2026-05-03
 
 ### Fixed

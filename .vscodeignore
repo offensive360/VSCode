@@ -9,3 +9,6 @@ vsc-extension-quickstart.md
 **/.DS_Store
 *.ts
 !out/**
+
+test/**
+out/*.test-bundle.js
